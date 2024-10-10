@@ -73,7 +73,7 @@ if __name__ == "__main__":
             node_writer.writerow(["title:ID"])  # CSV headers
             with open(args.filename_edges, "w", newline="", encoding="utf-8") as edge_file:
                 edge_writer = csv.writer(edge_file)
-                edge_writer.writerow(["title:START_ID", "title:END_ID"])  # CSV headers
+                edge_writer.writerow(["title:START_ID", "title:END_ID", "pos"])  # CSV headers
 
                 # Iterate through pages in the XML file
                 iterate_pages_from_export_file(

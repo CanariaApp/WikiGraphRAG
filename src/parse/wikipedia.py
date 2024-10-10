@@ -98,17 +98,34 @@ class PageLocation:
         return not self.__eq__(other)
 
 
+# def _extract_references(content):
+#     # While the <ref></ref> element can definitely contain references, I exclude them here since my concept of a
+#     # reference can be summed up as "a link that I'm likely to see while reading the content body of a page"
+#     content_minus_refs = re.sub("<ref>.*?</ref>", "", content)
+
+#     # Look for text matching [[target]] or [[target|display text]]
+#     pattern = re.compile("\\[\\[([^\\]]+)\\]\\]")
+    
+#     return [
+#         x.split("|")[0].split("#")[0] for x in re.findall(pattern, content_minus_refs)
+#     ]
+
 def _extract_references(content):
-    # While the <ref></ref> element can definitely contain references, I exclude them here since my concept of a
-    # reference can be summed up as "a link that I'm likely to see while reading the content body of a page"
+    """
+    Extract internal references (links) from the page content.
+    Returns a list of tuples: (link_title, position).
+    """
+    # Remove <ref> elements as they don't count as references in this context.
     content_minus_refs = re.sub("<ref>.*?</ref>", "", content)
 
     # Look for text matching [[target]] or [[target|display text]]
     pattern = re.compile("\\[\\[([^\\]]+)\\]\\]")
     
-    return [
-        x.split("|")[0].split("#")[0] for x in re.findall(pattern, content_minus_refs)
-    ]
+    # Get positions of links along with the references
+    matches = [(x.start(), x.group(1).split("|")[0].split("#")[0]) for x in pattern.finditer(content_minus_refs)]
+    
+    # Return list of (link, position) tuples
+    return matches
 
 
 def _map_dict_to_page_model(page, parse_page_location_fn):
@@ -122,13 +139,12 @@ def _map_dict_to_page_model(page, parse_page_location_fn):
     else:
         model = ContentPage()
         model.content = page["revision"]["text"]["content"]
+
+        # extract references and positions
         model.references = [
-            x
-            for x in [
-                parse_page_location_fn(x) 
-                for x in _extract_references(model.content)
-            ]
-            if x.title not in ["", f"{x.namespace}:"]
+            (parse_page_location_fn(ref), pos)
+            for pos, ref in _extract_references(model.content)
+            if ref not in ["", f"{parse_page_location_fn(ref).namespace}:"]
         ]
 
     page_location = parse_page_location_fn(page["title"]["content"])
@@ -211,8 +227,8 @@ def iterate_pages_from_export_file(
 
         # If the page is a ContentPage, write its links to the CSV file
         if isinstance(page, ContentPage) and edge_writer is not None:
-            for link in page.references:
-                edge_writer.writerow([page.title, link.title])
+            for ref, pos in page.references:
+                edge_writer.writerow([page.title, ref.title, pos])
 
         # Write titles to Aerospike
         # TO DO: not working
