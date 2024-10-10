@@ -113,7 +113,7 @@ class AerospikeConnector(ABC):
             keys.append(record[2])
         return keys
 
-    def put(self, namespace: str, set_name: str, key: tuple, value: dict) -> None:
+    def put(self, namespace: str, set_name: str, key: str, value: dict) -> None:
         try:
             # Using the instance's client attribute to perform the put operation.
             self.client.put((namespace, set_name, key), value)

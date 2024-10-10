@@ -1,9 +1,17 @@
 import re
 import csv
+import hashlib
+import pandas as pd
 from datetime import datetime
 from functools import partial
 from src.parse.xml_loader import load_xml
+from src.infra.connections_mysql import MySQLConnector
 from src.infra.connections_aerospike import AerospikeConnector
+
+
+def get_hash(txt: str):
+    return hashlib.md5((txt).encode("utf-8")).hexdigest()
+
 
 class Page:
     def __init__(self):
@@ -204,42 +212,104 @@ def build_dict_to_page_mapper():
     return on_element
 
 
+def insert_to_mysql(data, mysql_client):
+    """Insert data into MySQL using the given MySQLConnector."""
+    # convert the data batch into a DataFrame
+    df = pd.DataFrame(data, columns=["title", "link", "pos"])
+    # replace " " with "_"
+    df["title"] = df["title"].str.replace(" ", "_")
+    df["link"] = df["link"].str.replace(" ", "_")
+    # filter if title and link have more than 511 characters
+    df = df[(df["title"].str.len() <= 1023) & (df["link"].str.len() <= 1023)].reset_index(drop=True)
+    # # get hash values for the page and link titles
+    df["title_link_hash"] = df.apply(
+        lambda row: get_hash(f"{row['title']}_{row['link']}"), 
+        axis=1,
+    )
+    df["title_hash"] = df["title"].apply(get_hash)
+    df["link_hash"] = df["link"].apply(get_hash)
+    # print(df)
+    # insert to mysql
+    mysql_client.insert_dataframe(
+        table_name="wiki_links", 
+        df=df, 
+        verbose=False,
+        primary_keys=["title_link_hash"],
+    )
+
+
 def iterate_pages_from_export_file(
         file, 
         page_handlers=[], 
         node_writer=None,
         edge_writer=None,
+        mysql_client: MySQLConnector=None,
         aerospike_client: AerospikeConnector=None,
+        **kwargs,
     ):
     element_mapper = build_dict_to_page_mapper()
+
+    batch_size = kwargs.get("batch_size", 10000)
+    data_batch = []
+
+    num_threads = kwargs.get("num_threads", 1)
 
     def on_element(dto):
         page = element_mapper(dto)
         if page is None:
             return
 
-        # Pass each page to the handlers
+        # pass each page to the handlers
         [fn(page) for fn in page_handlers]
 
-        # Write the title to the CSV file
-        if isinstance(page, ContentPage) and node_writer is not None:
-            node_writer.writerow([page.title])
+        # insert to mysql
+        if isinstance(page, ContentPage):
+            for ref, pos in page.references:
+                data_batch.append((page.title, ref.title, pos))
+        # insert into MySQL in batches
+        if len(data_batch) >= batch_size:
+            if mysql_client is not None:
+                insert_to_mysql(data_batch, mysql_client)
+            data_batch.clear()  # Clear the batch after insertion
 
-        # If the page is a ContentPage, write its links to the CSV file
+        # write the title to the CSV file
+        if isinstance(page, ContentPage) and node_writer is not None:
+            node_writer.writerow([page.title.replace(" ", "_")])
+
+        # if the page is a ContentPage, write its links to the CSV file
         if isinstance(page, ContentPage) and edge_writer is not None:
             for ref, pos in page.references:
-                edge_writer.writerow([page.title, ref.title, pos])
+                edge_writer.writerow([page.title.replace(" ", "_"), ref.title.replace(" ", "_"), pos])
 
-        # Write titles to Aerospike
-        # TO DO: not working
+
+        # write titles to Aerospike
         if isinstance(page, ContentPage) and aerospike_client is not None:
-            # Insert the page title as the main key and link titles as values in Aerospike
-            page_key = (page.namespace or "wiki", "page_links", page.title)
+            # insert the page title as the main key and link titles as values in Aerospike
+            page_key = page.title.replace(" ", "_")
             aerospike_client.put(
                 namespace="wiki",
                 set_name="page_links",
                 key=page_key,
-                value={"linked_titles": [link.title for link in page.references]},
+                value={
+                    "exists": True,
+                    "title": page.title,
+                    "links": [link.title.replace(" ", "_") for link, _ in page.references],
+                },
             )
+            # placeholder for referenced pages
+            # too slow
+            if False:
+                for link, _ in page.references:
+                    if not aerospike_client.read("wiki", "page_links", key=link.title.replace(" ", "_")):
+                        link_key = link.title.replace(" ", "_")
+                        aerospike_client.put(
+                            namespace="wiki",
+                            set_name="page_links",
+                            key=link_key,
+                            value={
+                                "exists": True,
+                                "title": link_key,
+                            },
+                        )
 
     load_xml(file, on_element)

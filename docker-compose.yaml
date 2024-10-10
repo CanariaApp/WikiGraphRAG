@@ -67,3 +67,16 @@ services:
           memory: 18G
         reservations:
           memory: 16G
+    
+  wikidump5x-mysql:
+    container_name: wikidump5x-mysql
+    image: mysql:9.0.1
+    environment:
+      MYSQL_DATABASE: wikidump5x
+      MYSQL_PASSWORD: userWiki
+      MYSQL_ROOT_PASSWORD: rootWiki
+      MYSQL_USER: wikiuser
+    ports:
+      - 3307:3306
+    volumes:
+      - /db/mysql/wikidump5x:/var/lib/mysql
