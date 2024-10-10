@@ -1,3 +1,5 @@
+# load wikidump for neo4j 3.x and convert to 5.x
+
 # download datadump
 wget https://os.unil.cloud.switch.ch/swift/v1/lts2-wikipedia/wikipedia_nrc.dump \
     -O data/wikipedia_nrc.dump
