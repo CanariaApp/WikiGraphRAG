@@ -15,11 +15,11 @@ services:
       - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
       - NEO4J_dbms_allow__upgrade=true
     volumes:
-      - /db/neo4j/wiki4/data:/data
-      - /db/neo4j/wiki4/conf:/conf
-      - /db/neo4j/wiki4/logs:/logs
-      - /db/neo4j/wiki4/plugins:/plugins
-      - /db/neo4j/wiki4/import:/var/lib/neo4j/import
+      - /db/neo4j/wikidump4x/data:/data
+      - /db/neo4j/wikidump4x/conf:/conf
+      - /db/neo4j/wikidump4x/logs:/logs
+      - /db/neo4j/wikidump4x/plugins:/plugins
+      - /db/neo4j/wikidump4x/import:/var/lib/neo4j/import
 
   wikidump5x-neo4j:
     container_name: wikidump5x-neo4j
@@ -38,13 +38,32 @@ services:
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*
       - NEO4J_server_jvm_additional=--add-modules jdk.incubator.vector
     volumes:
-      - /db/neo4j/wiki5/data:/data
-      - /db/neo4j/wiki5/conf:/conf
-      - /db/neo4j/wiki5/logs:/logs
-      - /db/neo4j/wiki5/plugins:/plugins
-      - /db/neo4j/wiki5/import:/var/lib/neo4j/import
+      - /db/neo4j/wikidump5x/data:/data
+      - /db/neo4j/wikidump5x/conf:/conf
+      - /db/neo4j/wikidump5x/logs:/logs
+      - /db/neo4j/wikidump5x/plugins:/plugins
+      - /db/neo4j/wikidump5x/import:/var/lib/neo4j/import
     deploy:
       resources:
         limits:
           memory: 16g
           cpus: '4'
+
+  wikidump5x-aerospike:
+    container_name: wikidump5x-aerospike
+    image: aerospike/aerospike-server:7.1.0.6_1
+    ports:
+      - 3001:3000
+    environment:
+      - DEFAULT_TTL=0 # Default time-to-live for records
+      - MEM_GB=16
+      - NAMESPACE=wiki
+      - STORAGE_GB=128
+    volumes:
+      - /db/aerospike/wikidump5x:/opt/aerospike/data
+    deploy:
+      resources:
+        limits:
+          memory: 18G
+        reservations:
+          memory: 16G
