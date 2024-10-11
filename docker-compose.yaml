@@ -1,55 +1,4 @@
 services:
-  wikidump4x-neo4j:
-    container_name: wikidump4x-neo4j
-    privileged: true
-    image: neo4j:4.4.37-enterprise
-    ports:
-      - 7474:7474
-      - 7687:7687
-    environment:
-      - NEO4J_AUTH=neo4j/password
-      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
-      - NEO4J_apoc_export_file_enabled=true
-      - NEO4J_apoc_import_file_enabled=true
-      - NEO4J_apoc_import_file_use__neo4j__config=true
-      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
-      - NEO4J_dbms_allow__upgrade=true
-    volumes:
-      - /db/neo4j/wikidump4x/data:/data
-      - /db/neo4j/wikidump4x/conf:/conf
-      - /db/neo4j/wikidump4x/logs:/logs
-      - /db/neo4j/wikidump4x/plugins:/plugins
-      - /db/neo4j/wikidump4x/import:/var/lib/neo4j/import
-
-  wikidump5x-neo4j:
-    container_name: wikidump5x-neo4j
-    privileged: true
-    image: neo4j:5.24.1-enterprise
-    ports:
-      - 7474:7474
-      - 7687:7687
-    environment:
-      - NEO4J_AUTH=neo4j/password
-      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
-      - NEO4J_apoc_export_file_enabled=true
-      - NEO4J_apoc_import_file_enabled=true
-      - NEO4J_apoc_import_file_use__neo4j__config=true
-      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
-      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
-      - NEO4J_server_jvm_additional=--add-modules jdk.incubator.vector
-    volumes:
-      - /db/neo4j/wikidump5x/data:/data
-      - /db/neo4j/wikidump5x/conf:/conf
-      - /db/neo4j/wikidump5x/logs:/logs
-      - /db/neo4j/wikidump5x/plugins:/plugins
-      - /db/neo4j/wikidump5x/import:/var/lib/neo4j/import
-      # - ./data:/var/lib/neo4j/import
-    deploy:
-      resources:
-        limits:
-          memory: 16g
-          cpus: '4'
-
   wikidump5x-aerospike:
     container_name: wikidump5x-aerospike
     image: aerospike/aerospike-server:7.1.0.6_1
@@ -69,17 +18,15 @@ services:
         reservations:
           memory: 16G
     
-  wikidump5x-mysql:
-    container_name: wikidump5x-mysql
-    image: mysql:9.0.1
-    environment:
-      MYSQL_DATABASE: wikidump5x
-      MYSQL_PASSWORD: userWiki
-      MYSQL_ROOT_PASSWORD: rootWiki
-      MYSQL_USER: wikiuser
-    command: 
-      --local-infile=1
+  wikidump5x-mongodb:
+    container_name: wikidump5x-mongodb
+    image: mongo:8.0.0
     ports:
-      - 3307:3306
+      - 27018:27017
     volumes:
-      - /db/mysql/wikidump5x:/var/lib/mysql
+      - /db/mongodb/wikidump5x:/data/db
+    deploy:
+      resources:
+        limits:
+          memory: 32g
+          cpus: '8'

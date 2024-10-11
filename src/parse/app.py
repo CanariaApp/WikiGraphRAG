@@ -3,23 +3,21 @@
 Parse Wikipedia XML dump and prepare for neo4j admin import
 
 Usage:
-python -m src.parse.app \
+nohup python -m src.parse.app \
     --batch_size 100000 \
     --num_threads 4 \
     --filename_input data/wikidump/enwiki-latest-pages-articles-multistream.xml \
     --filename_nodes data/admin/nodes/title.csv \
     --filename_edges data/embeddings/edges/title_title.csv\
     --seconds_between_updates 0.1 \
-    --insert_aerospike \
-    --drop_aerospike \
+    > logs/parse.log &
     --insert_edges_csv
 
 """
 import argparse
 import csv
 import multiprocessing as mp
-from src.infra.connections_aerospike import AerospikeConnector
-from src.infra.connections_mysql import MySQLConnector
+from src.infra.connections_mongodb import MongoDBJobDB
 from src.parse.progress_indicator import ProgressIndicator
 from src.parse.wikipedia import iterate_pages_from_export_file
 
@@ -72,26 +70,6 @@ if __name__ == "__main__":
         action="store_true",
         help="insert edges to csv",
     )
-    parser.add_argument(
-        "--insert_aerospike",
-        action="store_true",
-        help="insert data to aerospike",
-    )
-    parser.add_argument(
-        "--drop_aerospike",
-        action="store_true",
-        help="drop and recreate aerospike namespace",
-    )
-    parser.add_argument(
-        "--insert_mysql",
-        action="store_true",
-        help="insert data to mysql",
-    )
-    parser.add_argument(
-        "--drop_mysql",
-        action="store_true",
-        help="drop and recreate mysql tables",
-    )
     args = parser.parse_args()
 
     # progress indicator
@@ -99,42 +77,14 @@ if __name__ == "__main__":
         seconds_between_updates=args.seconds_between_updates
     )
 
-    # aerospike client
-    aerospike_client = AerospikeConnector()
-    if args.drop_aerospike:
-        aerospike_client.drop_db("wiki", "page_links")
-
-    # mysql client
-    mysql_client = MySQLConnector(
-        "wikiuser",
+    # mongodb
+    mongodb_client = MongoDBJobDB(
+        "mongodb://localhost:27018/",
         "wikidump5x",
-        "userWiki",
-        port=3307,
     )
-    # Define the table schema
-    table_schema = {
-        # "title_link_hash": "CHAR(32)",
-        # "title_hash": "CHAR(32)",
-        "title": "VARCHAR(2047)",
-        # "link_hash": "CHAR(32)",
-        "link": "VARCHAR(2047)",
-        "pos": "INT"
-    }
-    if args.drop_mysql:
-        if "wiki_links" in mysql_client.get_all_tables():
-            mysql_client.delete_table("wiki_links")
-        mysql_client.create_table(
-            table_name="wiki_links", 
-            columns=table_schema, 
-            verbose=True,
-        )
-        # # too slow to insert after creating an index
-        # mysql_client.create_index(
-        #     table_name="wiki_links", 
-        #     columns=["title_link_hash", "title_hash", "link_hash"], 
-        #     unique=False,  # Optional: Set to True if you want a unique index
-        #     verbose=True
-        # )
+    mongodb_client.drop_collection("pages")
+    mongodb_client.create_index("pages", "title")
+    
 
     # open XML file and CSV file simultaneously
     with open(args.filename_input, "r", encoding="utf-8") as xml_file: 
@@ -151,8 +101,7 @@ if __name__ == "__main__":
                     page_handlers=[progress_indicator.on_element],
                     node_writer=node_writer if args.insert_nodes_csv else None,
                     edge_writer=edge_writer if args.insert_edges_csv else None,
-                    mysql_client=mysql_client if args.insert_mysql else None,
-                    aerospike_client=None if not args.insert_aerospike else aerospike_client,
+                    mongodb_client=mongodb_client,
                     batch_size=args.batch_size,
                     num_threads=args.num_threads,
                 )

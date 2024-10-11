@@ -2,11 +2,11 @@ import re
 import csv
 import hashlib
 import pandas as pd
+from pymongo import UpdateOne
 from datetime import datetime
 from functools import partial
+from src.infra.connections_mongodb import MongoDBJobDB
 from src.parse.xml_loader import load_xml
-from src.infra.connections_mysql import MySQLConnector
-from src.infra.connections_aerospike import AerospikeConnector
 
 
 # keep a set for unique titles and links
@@ -215,64 +215,19 @@ def build_dict_to_page_mapper():
     return on_element
 
 
-def insert_to_mysql(data, mysql_client):
-    """Insert data into MySQL using the given MySQLConnector."""
-    # convert the data batch into a DataFrame
-    df = pd.DataFrame(data, columns=["title", "link", "pos"])
-
-    # filter if title and link have more than 511 characters
-    df = df[
-        (df["title"].str.len() <= 2047) & (df["link"].str.len() <= 2047)
-    ].reset_index(drop=True)
-
-    # return if dataframe is empty
-    if df.shape[0] == 0:
-        return
-
-    # # get hash values for the page and link titles
-    # df["title_link_hash"] = df.apply(
-    #     lambda row: get_hash(f"{row['title']}_{row['link']}"),
-    #     axis=1,
-    # )
-    # df["title_hash"] = df["title"].apply(get_hash)
-    # df["link_hash"] = df["link"].apply(get_hash)
-
-    # # filter hashes
-    # df = df[
-    #     (df["title_link_hash"].str.len() == 32) &
-    #     (df["title_hash"].str.len() == 32) &
-    #     (df["link_hash"].str.len() == 32)
-    # ].reset_index(drop=True)
-
-    # if df.shape[0] == 0:
-    #     return
-
-    # insert to mysql
-    mysql_client.insert_dataframe(
-        table_name="wiki_links",
-        df=df,
-        verbose=False,
-        # primary_keys=["title_link_hash"],
-    )
-
-    return
-
-
 def iterate_pages_from_export_file(
     file,
     page_handlers=[],
     node_writer=None,
     edge_writer=None,
-    mysql_client: MySQLConnector = None,
-    aerospike_client: AerospikeConnector = None,
+    mongodb_client: MongoDBJobDB=None,
     **kwargs,
 ):
     element_mapper = build_dict_to_page_mapper()
-
-    batch_size = kwargs.get("batch_size", 10000)
-    data_batch = []
-
-    num_threads = kwargs.get("num_threads", 1)
+    
+    # batched processing
+    batch_size = kwargs.get("batch_size", 100)
+    batch_update = []
 
     def on_element(dto):
         page = element_mapper(dto)
@@ -282,48 +237,50 @@ def iterate_pages_from_export_file(
         # pass each page to the handlers
         [fn(page) for fn in page_handlers]
 
-        # insert to mysql
-        if isinstance(page, ContentPage):
-            for ref, pos in page.references:
-                if "category" in str(ref.title).lower():
-                    continue
-                else:
-                    data_batch.append((page.title, ref.title, pos))
-        # insert into MySQL in batches
-        if len(data_batch) >= batch_size:
-            if mysql_client is not None:
-                insert_to_mysql(data_batch, mysql_client)
-            data_batch.clear()  # Clear the batch after insertion
-
         # write the title to the CSV file
         if isinstance(page, ContentPage) and node_writer is not None:
             node_writer.writerow([page.title])
 
         # if the page is a ContentPage, write its links to the CSV file
         if isinstance(page, ContentPage) and edge_writer is not None:
-            if aerospike_client.read("wiki", "embedded_pages", page.title) is not None:
-                for ref, pos in page.references:
-                    if "category:" in str(ref.title).lower():
-                        pass
-                    else:
-                        if aerospike_client is None:
-                            edge_writer.writerow([page.title, ref.title, pos])
-                        else:
-                            if aerospike_client.read("wiki", "embedded_pages", ref.title) is not None:
-                                edge_writer.writerow([page.title, ref.title, pos])
-
-        # write titles to Aerospike
-        if isinstance(page, ContentPage) and aerospike_client is not None:
-            # insert the page title as the main key and link titles as values in Aerospike
-            aerospike_client.put(
-                namespace="wiki",
-                set_name="page_links",
-                key=page.title,
-                value={
-                    "exists": True,
-                    "title": page.title,
-                    "links": [link.title for link, _ in page.references],
-                },
-            )
+            for ref, pos in page.references:
+                edge_writer.writerow([page.title, ref.title, pos])
+        
+        # if the page is a ContentPage, insert it into MongoDB
+        if isinstance(page, ContentPage) and mongodb_client is not None:
+            for ref, pos in page.references:
+                batch_update.append(
+                    UpdateOne(
+                        {"title": page.title},
+                        {   
+                            "$setOnInsert": {
+                                "title": page.title,
+                                "type": "Page",
+                            },
+                            "$addToSet": {
+                                "references": {
+                                    "title": ref.title,
+                                    "position": pos,
+                                }
+                            }
+                        },
+                        upsert=True,
+                    )
+                )
+                batch_update.append(
+                    UpdateOne(
+                        {"title": ref.title},
+                        {
+                            "$setOnInsert": {
+                                "title": ref.title,
+                                "type": ref.namespace or "Page",
+                            },
+                        },
+                        upsert=True,
+                    )
+                )
+            if len(batch_update) >= batch_size:
+                mongodb_client.bulk_write("pages", batch_update)
+                batch_update.clear()
 
     load_xml(file, on_element)
