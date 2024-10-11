@@ -1,3 +1,5 @@
+import os
+import tempfile
 import atexit
 from abc import ABC, abstractmethod
 from time import sleep
@@ -26,7 +28,13 @@ class MySQLConnector(ABC):
     @classmethod
     def connect(self):
         try:
-            self.cnx = mysql.connector.connect(user=self.user, database=self.database, password=self.password, port=self.port)
+            self.cnx = mysql.connector.connect(
+                user=self.user, 
+                database=self.database, 
+                password=self.password, 
+                port=self.port,
+                allow_local_infile=True,
+            )
         except mysql.connector.Error as err:
             if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
                 print("Something is wrong with your user name or password")
@@ -179,62 +187,56 @@ class MySQLConnector(ABC):
         df: pd.DataFrame,
         **kwargs,
     ) -> None:
-        
+        """
+        Optimized insertion of a DataFrame into MySQL using `LOAD DATA INFILE`.
+        """
+        # Handle optional arguments
         primary_keys = kwargs.get("primary_keys", None)
         foreign_keys = kwargs.get("foreign_keys", None)
-        batch_size = kwargs.get("batch_size", 1000)
         verbose = kwargs.get("verbose", False)
-        max_retries = kwargs.get("max_retries", 3)
 
-        # filter out rows where any primary or foreign key is None
+        # Preprocess the DataFrame: Drop rows with NaNs in primary/foreign keys and remove duplicates
         if primary_keys:
             df = df.dropna(subset=primary_keys)
         if foreign_keys:
-            for col, ref in foreign_keys.items():
+            for col, _ in foreign_keys.items():
                 df = df.dropna(subset=[col])
-        df = df.replace({np.nan: None})
-        # remove any rows with duplicate primary
         if primary_keys:
             df = df.drop_duplicates(subset=primary_keys)
         
+        # Replace NaN values with None to avoid MySQL insert issues
         df = df.replace({np.nan: None})
+
+        # Convert DataFrame to a CSV format for `LOAD DATA INFILE`
+        with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.csv') as temp_file:
+            # Save DataFrame as CSV in the temp file
+            temp_file_path = temp_file.name
+            df.to_csv(temp_file_path, sep=',', index=False, header=False)
+
+        # Load the CSV into the MySQL table using `LOAD DATA INFILE`
         cursor = self.cnx.cursor()
-        columns = ", ".join(df.columns)
-        placeholders = ", ".join(["%s" for _ in range(len(df.columns))])
-
-        # query
-        query = f"""
-        INSERT IGNORE INTO {table_name} ({columns})
-        VALUES ({placeholders})
-        """
-        data = [tuple(row) for row in df.itertuples(index=False, name=None)]
-
-        # execute the query
         try:
-            for i in tqdm(range(0, len(data), batch_size), disable=not verbose):
-                batch = data[i:i+batch_size]
-                attempts = 0
-                while attempts < max_retries:
-                    try:
-                        cursor.executemany(query, batch)
-                        self.cnx.commit()
-                        sleep(0.05 + np.random.rand() * 0.025)  # sleep to avoid overloading the server
-                        break  # exit retry loop if successful
-                    except mysql.connector.Error as err:
-                        if err.errno == 1213:  # deadlock found
-                            attempts += 1
-                            if verbose:
-                                print(f"Deadlock detected. Retry {attempts}/{max_retries}")
-                            if attempts == max_retries:
-                                raise  # eethrow the exception if max retries are exceeded
-                        else:
-                            raise  # eethrow any other exceptions
+            # Construct the `LOAD DATA INFILE` query
+            query = f"""
+            LOAD DATA LOCAL INFILE '{temp_file_path}'
+            INTO TABLE {table_name}
+            FIELDS TERMINATED BY ','
+            LINES TERMINATED BY '\\n'
+            ({", ".join(df.columns)});
+            """
+
+            # Execute the query
+            cursor.execute(query)
+            self.cnx.commit()
+            if verbose:
+                print(f"Successfully inserted {len(df)} rows into `{table_name}` using LOAD DATA INFILE.")
         except mysql.connector.Error as err:
             if verbose:
-                print(f"Failed to insert data into {table_name}: {err}")
+                print(f"Failed to load data into `{table_name}`: {err}")
         finally:
             cursor.close()
-        return
+            # Delete the temporary file
+            os.remove(temp_file_path)
     
     @classmethod
     def return_dataframe(self, query: str) -> pd.DataFrame:

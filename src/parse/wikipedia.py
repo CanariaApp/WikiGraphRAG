@@ -106,17 +106,6 @@ class PageLocation:
         return not self.__eq__(other)
 
 
-# def _extract_references(content):
-#     # While the <ref></ref> element can definitely contain references, I exclude them here since my concept of a
-#     # reference can be summed up as "a link that I'm likely to see while reading the content body of a page"
-#     content_minus_refs = re.sub("<ref>.*?</ref>", "", content)
-
-#     # Look for text matching [[target]] or [[target|display text]]
-#     pattern = re.compile("\\[\\[([^\\]]+)\\]\\]")
-    
-#     return [
-#         x.split("|")[0].split("#")[0] for x in re.findall(pattern, content_minus_refs)
-#     ]
 
 def _extract_references(content):
     """
@@ -129,9 +118,13 @@ def _extract_references(content):
     # Look for text matching [[target]] or [[target|display text]]
     pattern = re.compile("\\[\\[([^\\]]+)\\]\\]")
     
-    # Get positions of links along with the references
+    # # Get positions of links along with the references
     matches = [(x.start(), x.group(1).split("|")[0].split("#")[0]) for x in pattern.finditer(content_minus_refs)]
-    
+    # matches = [(x.start(), "") for x in pattern.finditer(content_minus_refs)]
+
+    # # Use finditer and tuple unpacking for more efficient extraction
+    # matches = [(match.start(), match.group(1)) for match in pattern.finditer(content_minus_refs)]
+
     # Return list of (link, position) tuples
     return matches
 
@@ -142,7 +135,7 @@ def _map_dict_to_page_model(page, parse_page_location_fn):
 
         model = RedirectPage()
         model.target = RedirectPageTarget()
-        model.target.title = page_location.title
+        model.target.title = page_location
         model.target.namespace = page_location.namespace
     else:
         model = ContentPage()
@@ -157,7 +150,7 @@ def _map_dict_to_page_model(page, parse_page_location_fn):
 
     page_location = parse_page_location_fn(page["title"]["content"])
     model.id = int(page["id"]["content"])
-    model.title = page_location.title
+    model.title = page_location.title #.replace(" ", "_")
     model.namespace = page_location.namespace
     model.last_edit = datetime.fromisoformat(
         page["revision"]["timestamp"]["content"][:-1]
@@ -172,8 +165,13 @@ def _get_page_location(namespace_set, title):
             return s.upper()
         return s[0].upper() + s[1:]
 
+    # Extract string before the first '|' if present
+    sanitized_title = title.split("|")[0]  # Get the string before '|'
+    # replace underscores with spaces
+    sanitized_title = re.sub("[\\s_]+", "_", sanitized_title).strip()
     # Pages that start with "W:" (e.g. "W:Pants") are the same as pages in the main namespace with the preface
-    sanitized_title = re.sub("[\\s_]+", " ", title).strip()
+    sanitized_title = re.sub("[\\s_]+", "_", title).strip()
+
     if title.startswith("W:") or title.startswith("w:"):
         return PageLocation(capitalize(sanitized_title[2:]), None)
 
@@ -208,6 +206,7 @@ def build_dict_to_page_mapper():
 
         elif dto["name"] == "page":
             return _map_dict_to_page_model(dto, parse_page_location_fn)
+            
 
     return on_element
 
@@ -216,26 +215,31 @@ def insert_to_mysql(data, mysql_client):
     """Insert data into MySQL using the given MySQLConnector."""
     # convert the data batch into a DataFrame
     df = pd.DataFrame(data, columns=["title", "link", "pos"])
-    # replace " " with "_"
-    df["title"] = df["title"].str.replace(" ", "_")
-    df["link"] = df["link"].str.replace(" ", "_")
+
     # filter if title and link have more than 511 characters
-    df = df[(df["title"].str.len() <= 1023) & (df["link"].str.len() <= 1023)].reset_index(drop=True)
-    # # get hash values for the page and link titles
-    df["title_link_hash"] = df.apply(
-        lambda row: get_hash(f"{row['title']}_{row['link']}"), 
-        axis=1,
-    )
-    df["title_hash"] = df["title"].apply(get_hash)
-    df["link_hash"] = df["link"].apply(get_hash)
-    # print(df)
+    df = df[(df["title"].str.len() <= 2047) & (df["link"].str.len() <= 2047)].reset_index(drop=True)
+
+    if df.shape[0] == 0:
+        return
+
+    # # # get hash values for the page and link titles
+    # df["title_link_hash"] = df.apply(
+    #     lambda row: get_hash(f"{row['title']}_{row['link']}"), 
+    #     axis=1,
+    # )
+
+    # df["title_hash"] = df["title"].apply(get_hash)
+    # df["link_hash"] = df["link"].apply(get_hash)
+    
     # insert to mysql
     mysql_client.insert_dataframe(
         table_name="wiki_links", 
         df=df, 
         verbose=False,
-        primary_keys=["title_link_hash"],
+        # primary_keys=["title_link_hash"],
     )
+
+    return
 
 
 def iterate_pages_from_export_file(
@@ -265,51 +269,42 @@ def iterate_pages_from_export_file(
         # insert to mysql
         if isinstance(page, ContentPage):
             for ref, pos in page.references:
-                data_batch.append((page.title, ref.title, pos))
+                if "category" in str(ref.title).lower():
+                    continue
+                else:
+                    data_batch.append((page.title, ref.title, pos))
         # insert into MySQL in batches
         if len(data_batch) >= batch_size:
             if mysql_client is not None:
                 insert_to_mysql(data_batch, mysql_client)
             data_batch.clear()  # Clear the batch after insertion
 
+
         # write the title to the CSV file
         if isinstance(page, ContentPage) and node_writer is not None:
-            node_writer.writerow([page.title.replace(" ", "_")])
+            node_writer.writerow([page.title])
 
         # if the page is a ContentPage, write its links to the CSV file
         if isinstance(page, ContentPage) and edge_writer is not None:
             for ref, pos in page.references:
-                edge_writer.writerow([page.title.replace(" ", "_"), ref.title.replace(" ", "_"), pos])
+                if "category:" in str(ref.title).lower():
+                    pass
+                else:
+                    edge_writer.writerow([page.title, ref.title, pos])
 
 
         # write titles to Aerospike
         if isinstance(page, ContentPage) and aerospike_client is not None:
             # insert the page title as the main key and link titles as values in Aerospike
-            page_key = page.title.replace(" ", "_")
             aerospike_client.put(
                 namespace="wiki",
                 set_name="page_links",
-                key=page_key,
+                key=page.title,
                 value={
                     "exists": True,
                     "title": page.title,
-                    "links": [link.title.replace(" ", "_") for link, _ in page.references],
+                    "links": [link.title for link, _ in page.references],
                 },
             )
-            # placeholder for referenced pages
-            # too slow
-            if False:
-                for link, _ in page.references:
-                    if not aerospike_client.read("wiki", "page_links", key=link.title.replace(" ", "_")):
-                        link_key = link.title.replace(" ", "_")
-                        aerospike_client.put(
-                            namespace="wiki",
-                            set_name="page_links",
-                            key=link_key,
-                            value={
-                                "exists": True,
-                                "title": link_key,
-                            },
-                        )
 
     load_xml(file, on_element)

@@ -76,6 +76,8 @@ services:
       MYSQL_PASSWORD: userWiki
       MYSQL_ROOT_PASSWORD: rootWiki
       MYSQL_USER: wikiuser
+    command: 
+      --local-infile=1
     ports:
       - 3307:3306
     volumes:

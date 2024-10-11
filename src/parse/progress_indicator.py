@@ -25,7 +25,5 @@ class ProgressIndicator:
             now - self.last_update_time
         )
 
-        self.pbar.set_description(
-            f"Page Count: {self.page_count}, Pages per second: Global ({int(lifetime_speed)}) / Momentary ({int(momentary_speed)})"
-        )
+        self.pbar.set_description(f"Page Count: {self.page_count}")
         self.pbar.update(self.page_count - self.pbar.n)

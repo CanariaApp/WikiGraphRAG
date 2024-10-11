@@ -10,6 +10,10 @@ python -m src.parse.app \
     --filename_nodes data/admin/nodes/title.csv \
     --filename_edges data/admin/edges/title_title.csv \
     --seconds_between_updates 1 \
+    --insert_aerospike \
+    --drop_aerospike \
+    --insert_edges_csv \
+    --insert_nodes_csv \
     --insert_mysql \
     --drop_mysql
 """
@@ -56,7 +60,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--seconds_between_updates",
-        type=int,
+        type=float,
         default=1,
         help="number of seconds between progress updates",
     )
@@ -111,11 +115,11 @@ if __name__ == "__main__":
     )
     # Define the table schema
     table_schema = {
-        "title_link_hash": "CHAR(32) PRIMARY KEY",
-        "title_hash": "CHAR(32)",
-        "title": "VARCHAR(1023)",
-        "link_hash": "CHAR(32)",
-        "link": "VARCHAR(1023)",
+        # "title_link_hash": "CHAR(32) PRIMARY KEY",
+        # "title_hash": "CHAR(32)",
+        "title": "VARCHAR(2047)",
+        # "link_hash": "CHAR(32)",
+        "link": "VARCHAR(2047)",
         "pos": "INT"
     }
     if args.drop_mysql:
