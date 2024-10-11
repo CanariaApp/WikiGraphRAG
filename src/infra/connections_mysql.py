@@ -107,32 +107,40 @@ class MySQLConnector(ABC):
             cursor.close()
     
     @classmethod
-    def create_index(
-        self, 
-        table_name: str, 
-        columns: List[str], 
-        **kwargs,
-    ) -> None:
-        
+    def create_index(self, table_name: str, columns: list, index_lengths=None, **kwargs) -> None:
+        """
+        Create an index on the specified table and columns, with optional prefix lengths.
+        """
         unique = kwargs.get("unique", False)
         verbose = kwargs.get("verbose", False)
+
+        # Build the index name based on the table name and columns
+        index_name = f"idx_{table_name}_{'_'.join(columns)}"
+
+        # Construct the column definitions for the index
+        if index_lengths and len(index_lengths) == len(columns):
+            # Apply prefix lengths if provided
+            columns_with_lengths = [f"{col}({length})" for col, length in zip(columns, index_lengths)]
+        else:
+            # No prefix lengths specified, use entire columns
+            columns_with_lengths = columns
+
+        # Construct the CREATE INDEX query
+        query = f"CREATE {'UNIQUE' if unique else ''} INDEX {index_name} ON {table_name} ({', '.join(columns_with_lengths)});"
+
+        # Execute the query
         cursor = self.cnx.cursor()
-
-        # build the columns definition part of the query
-        columns = ", ".join(columns)
-
-        # initialize the query with the column definitions
-        query = f"CREATE {'UNIQUE' if unique else ''} INDEX idx_{table_name}_{columns} ON {table_name} ({columns});"
-
-        # execute the query
         try:
+            if verbose:
+                print(f"Creating index '{index_name}' on table '{table_name}' for columns: {', '.join(columns_with_lengths)}")
             cursor.execute(query)
+            if verbose:
+                print(f"Index '{index_name}' created successfully.")
         except mysql.connector.Error as err:
             if verbose:
                 print(f"Failed creating index on table {table_name}: {err}")
         finally:
             cursor.close()
-        return
 
     @classmethod
     def show_indexes(self, table_name: str) -> None:

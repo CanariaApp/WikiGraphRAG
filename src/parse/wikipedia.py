@@ -9,6 +9,9 @@ from src.infra.connections_mysql import MySQLConnector
 from src.infra.connections_aerospike import AerospikeConnector
 
 
+# keep a set for unique titles and links
+
+
 def get_hash(txt: str):
     return hashlib.md5((txt).encode("utf-8")).hexdigest()
 
@@ -219,18 +222,28 @@ def insert_to_mysql(data, mysql_client):
     # filter if title and link have more than 511 characters
     df = df[(df["title"].str.len() <= 2047) & (df["link"].str.len() <= 2047)].reset_index(drop=True)
 
+    # return if dataframe is empty
     if df.shape[0] == 0:
         return
 
-    # # # get hash values for the page and link titles
+    # # get hash values for the page and link titles
     # df["title_link_hash"] = df.apply(
     #     lambda row: get_hash(f"{row['title']}_{row['link']}"), 
     #     axis=1,
     # )
-
     # df["title_hash"] = df["title"].apply(get_hash)
     # df["link_hash"] = df["link"].apply(get_hash)
     
+    # # filter hashes
+    # df = df[
+    #     (df["title_link_hash"].str.len() == 32) &
+    #     (df["title_hash"].str.len() == 32) &
+    #     (df["link_hash"].str.len() == 32)
+    # ].reset_index(drop=True)
+
+    # if df.shape[0] == 0:
+    #     return
+
     # insert to mysql
     mysql_client.insert_dataframe(
         table_name="wiki_links", 

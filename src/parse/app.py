@@ -115,7 +115,7 @@ if __name__ == "__main__":
     )
     # Define the table schema
     table_schema = {
-        # "title_link_hash": "CHAR(32) PRIMARY KEY",
+        # "title_link_hash": "CHAR(32)",
         # "title_hash": "CHAR(32)",
         "title": "VARCHAR(2047)",
         # "link_hash": "CHAR(32)",
@@ -130,6 +130,13 @@ if __name__ == "__main__":
             columns=table_schema, 
             verbose=True,
         )
+        # # too slow to insert after creating an index
+        # mysql_client.create_index(
+        #     table_name="wiki_links", 
+        #     columns=["title_link_hash", "title_hash", "link_hash"], 
+        #     unique=False,  # Optional: Set to True if you want a unique index
+        #     verbose=True
+        # )
 
     # open XML file and CSV file simultaneously
     with open(args.filename_input, "r", encoding="utf-8") as xml_file: 
