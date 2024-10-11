@@ -8,14 +8,12 @@ python -m src.parse.app \
     --num_threads 4 \
     --filename_input data/wikidump/enwiki-latest-pages-articles-multistream.xml \
     --filename_nodes data/admin/nodes/title.csv \
-    --filename_edges data/admin/edges/title_title.csv \
-    --seconds_between_updates 1 \
+    --filename_edges data/embeddings/edges/title_title.csv\
+    --seconds_between_updates 0.1 \
     --insert_aerospike \
     --drop_aerospike \
-    --insert_edges_csv \
-    --insert_nodes_csv \
-    --insert_mysql \
-    --drop_mysql
+    --insert_edges_csv
+
 """
 import argparse
 import csv

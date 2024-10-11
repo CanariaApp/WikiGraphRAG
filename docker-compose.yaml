@@ -42,8 +42,8 @@ services:
       - /db/neo4j/wikidump5x/conf:/conf
       - /db/neo4j/wikidump5x/logs:/logs
       - /db/neo4j/wikidump5x/plugins:/plugins
-      - ./data:/var/lib/neo4j/import
-      # - /db/neo4j/wikidump5x/import:/var/lib/neo4j/import
+      - /db/neo4j/wikidump5x/import:/var/lib/neo4j/import
+      # - ./data:/var/lib/neo4j/import
     deploy:
       resources:
         limits:

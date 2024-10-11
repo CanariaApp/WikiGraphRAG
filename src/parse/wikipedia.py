@@ -109,7 +109,6 @@ class PageLocation:
         return not self.__eq__(other)
 
 
-
 def _extract_references(content):
     """
     Extract internal references (links) from the page content.
@@ -120,9 +119,12 @@ def _extract_references(content):
 
     # Look for text matching [[target]] or [[target|display text]]
     pattern = re.compile("\\[\\[([^\\]]+)\\]\\]")
-    
+
     # # Get positions of links along with the references
-    matches = [(x.start(), x.group(1).split("|")[0].split("#")[0]) for x in pattern.finditer(content_minus_refs)]
+    matches = [
+        (x.start(), x.group(1).split("|")[0].split("#")[0])
+        for x in pattern.finditer(content_minus_refs)
+    ]
     # matches = [(x.start(), "") for x in pattern.finditer(content_minus_refs)]
 
     # # Use finditer and tuple unpacking for more efficient extraction
@@ -153,7 +155,7 @@ def _map_dict_to_page_model(page, parse_page_location_fn):
 
     page_location = parse_page_location_fn(page["title"]["content"])
     model.id = int(page["id"]["content"])
-    model.title = page_location.title #.replace(" ", "_")
+    model.title = page_location.title  # .replace(" ", "_")
     model.namespace = page_location.namespace
     model.last_edit = datetime.fromisoformat(
         page["revision"]["timestamp"]["content"][:-1]
@@ -209,7 +211,6 @@ def build_dict_to_page_mapper():
 
         elif dto["name"] == "page":
             return _map_dict_to_page_model(dto, parse_page_location_fn)
-            
 
     return on_element
 
@@ -220,7 +221,9 @@ def insert_to_mysql(data, mysql_client):
     df = pd.DataFrame(data, columns=["title", "link", "pos"])
 
     # filter if title and link have more than 511 characters
-    df = df[(df["title"].str.len() <= 2047) & (df["link"].str.len() <= 2047)].reset_index(drop=True)
+    df = df[
+        (df["title"].str.len() <= 2047) & (df["link"].str.len() <= 2047)
+    ].reset_index(drop=True)
 
     # return if dataframe is empty
     if df.shape[0] == 0:
@@ -228,12 +231,12 @@ def insert_to_mysql(data, mysql_client):
 
     # # get hash values for the page and link titles
     # df["title_link_hash"] = df.apply(
-    #     lambda row: get_hash(f"{row['title']}_{row['link']}"), 
+    #     lambda row: get_hash(f"{row['title']}_{row['link']}"),
     #     axis=1,
     # )
     # df["title_hash"] = df["title"].apply(get_hash)
     # df["link_hash"] = df["link"].apply(get_hash)
-    
+
     # # filter hashes
     # df = df[
     #     (df["title_link_hash"].str.len() == 32) &
@@ -246,8 +249,8 @@ def insert_to_mysql(data, mysql_client):
 
     # insert to mysql
     mysql_client.insert_dataframe(
-        table_name="wiki_links", 
-        df=df, 
+        table_name="wiki_links",
+        df=df,
         verbose=False,
         # primary_keys=["title_link_hash"],
     )
@@ -256,14 +259,14 @@ def insert_to_mysql(data, mysql_client):
 
 
 def iterate_pages_from_export_file(
-        file, 
-        page_handlers=[], 
-        node_writer=None,
-        edge_writer=None,
-        mysql_client: MySQLConnector=None,
-        aerospike_client: AerospikeConnector=None,
-        **kwargs,
-    ):
+    file,
+    page_handlers=[],
+    node_writer=None,
+    edge_writer=None,
+    mysql_client: MySQLConnector = None,
+    aerospike_client: AerospikeConnector = None,
+    **kwargs,
+):
     element_mapper = build_dict_to_page_mapper()
 
     batch_size = kwargs.get("batch_size", 10000)
@@ -292,19 +295,22 @@ def iterate_pages_from_export_file(
                 insert_to_mysql(data_batch, mysql_client)
             data_batch.clear()  # Clear the batch after insertion
 
-
         # write the title to the CSV file
         if isinstance(page, ContentPage) and node_writer is not None:
             node_writer.writerow([page.title])
 
         # if the page is a ContentPage, write its links to the CSV file
         if isinstance(page, ContentPage) and edge_writer is not None:
-            for ref, pos in page.references:
-                if "category:" in str(ref.title).lower():
-                    pass
-                else:
-                    edge_writer.writerow([page.title, ref.title, pos])
-
+            if aerospike_client.read("wiki", "embedded_pages", page.title) is not None:
+                for ref, pos in page.references:
+                    if "category:" in str(ref.title).lower():
+                        pass
+                    else:
+                        if aerospike_client is None:
+                            edge_writer.writerow([page.title, ref.title, pos])
+                        else:
+                            if aerospike_client.read("wiki", "embedded_pages", ref.title) is not None:
+                                edge_writer.writerow([page.title, ref.title, pos])
 
         # write titles to Aerospike
         if isinstance(page, ContentPage) and aerospike_client is not None:
