@@ -16,12 +16,13 @@ from tqdm import tqdm
 
 
 def convert_embeddings(input_path, output_path):
-    pbar.set_description(f"Converting {input_path}")
+    #pbar.set_description(f"Converting {input_path}")
+    print(f"Converting {input_path}")
     embeddings = pd.read_parquet(input_path)
     # convert embeddings to string delimited by ;
     embeddings["embedding"] = embeddings["embedding"].apply(lambda x: ";".join(map(str, x)))
     embeddings.to_csv(output_path, index=False)
-    pbar.update()
+    #pbar.update()
     return
 
 if __name__ == "__main__":
@@ -51,7 +52,7 @@ if __name__ == "__main__":
     input_files = glob(f"{args.input_dir}/*.parquet")
     input_files.sort()
 
-    pbar = tqdm()
+    #pbar = tqdm()
     with mp.Pool(args.num_threads) as pool:
         pool.starmap(
             convert_embeddings,

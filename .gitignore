@@ -1,0 +1,17 @@
+.env
+.cache
+flagged
+db/*
+db/import/*.csv
+csvs/*
+csvs_full/*
+flagged/*
+venv
+*.gguf
+!*dummy.txt
+profile_stats
+.idea
+src/data/embeddings
+src/data/wikidump
+__pycache__
+/src/data/admin/nodes

@@ -17,6 +17,9 @@ nohup python -m src.parse.app \
 import argparse
 import csv
 import multiprocessing as mp
+import bz2
+import sys
+sys.path.append('C:\Temp\WikiGraphRAG')
 from src.infra.connections_mongodb import MongoDBJobDB
 from src.parse.progress_indicator import ProgressIndicator
 from src.parse.wikipedia import iterate_pages_from_export_file
@@ -83,24 +86,24 @@ if __name__ == "__main__":
         "wikidump5x",
     )
     mongodb_client.drop_collection("pages")
-    mongodb_client.create_index("pages", "title")
+    mongodb_client.create_index("pages", "id")
     
 
     # open XML file and CSV file simultaneously
-    with open(args.filename_input, "r", encoding="utf-8") as xml_file: 
-        with open(args.filename_nodes, "w", newline="", encoding="utf-8") as node_file:
-            node_writer = csv.writer(node_file)
-            node_writer.writerow(["title:ID"])  # CSV headers
-            with open(args.filename_edges, "w", newline="", encoding="utf-8") as edge_file:
-                edge_writer = csv.writer(edge_file)
-                edge_writer.writerow(["title:START_ID", "title:END_ID", "pos"])  # CSV headers
+    with bz2.open(args.filename_input, "rt", encoding="utf-8") as xml_file:
+        # with open(args.filename_nodes, "w", newline="", encoding="utf-8") as node_file:
+        #     node_writer = csv.writer(node_file)
+        #     node_writer.writerow(["title:ID"])  # CSV headers
+        #     with open(args.filename_edges, "w", newline="", encoding="utf-8") as edge_file:
+        #         edge_writer = csv.writer(edge_file)
+        #         edge_writer.writerow(["title:START_ID", "title:END_ID", "pos"])  # CSV headers
 
                 # Iterate through pages in the XML file
                 iterate_pages_from_export_file(
                     xml_file,
                     page_handlers=[progress_indicator.on_element],
-                    node_writer=node_writer if args.insert_nodes_csv else None,
-                    edge_writer=edge_writer if args.insert_edges_csv else None,
+                    #node_writer=node_writer if args.insert_nodes_csv else None,
+                    #edge_writer=edge_writer if args.insert_edges_csv else None,
                     mongodb_client=mongodb_client,
                     batch_size=args.batch_size,
                     num_threads=args.num_threads,
