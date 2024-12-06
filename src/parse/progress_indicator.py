@@ -2,12 +2,13 @@ import time
 from tqdm import tqdm
 
 class ProgressIndicator:
-    def __init__(self, seconds_between_updates):
+    def __init__(self, seconds_between_updates, tot_page_number=7e6):
         self.page_count = 0
         self.last_page_count = 0
         self.last_update_time = self.start_time = time.time()
         self.seconds_between_updates = seconds_between_updates
-        self.pbar = tqdm()
+        self.tot_page_number = int(tot_page_number)
+        self.pbar = tqdm(total=self.tot_page_number)
 
     def on_element(self, _):
         self.page_count += 1
@@ -20,10 +21,11 @@ class ProgressIndicator:
 
     def display_updates(self):
         now = time.time()
-        lifetime_speed = self.page_count / (now - self.start_time)
+        t = (now - self.start_time)
+        lifetime_speed = self.page_count / t
         momentary_speed = (self.page_count - self.last_page_count) / (
             now - self.last_update_time
         )
 
-        self.pbar.set_description(f"Page Count: {self.page_count}")
+        self.pbar.set_description(f"Page Count: {self.page_count}")# Estimated time left {(self.tot_page_number/self.page_count-1)*t/3600} hrs")
         self.pbar.update(self.page_count - self.pbar.n)

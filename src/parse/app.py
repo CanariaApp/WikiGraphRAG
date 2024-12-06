@@ -26,18 +26,18 @@ from src.infra.connections_mongodb import MongoDBJobDB
 from src.parse.progress_indicator import ProgressIndicator
 from src.parse.wikipedia import iterate_pages_from_export_file,iterate_pages_to_find_redirects
 
-# #Make sure we don't buffer
-# class Unbuffered(object):
-#     def __init__(self, stream):
-#         self.stream = stream
-#
-#     def write(self, data):
-#         self.stream.write(data)
-#         self.stream.flush()
-#
-#     def __getattr__(self, attr):
-#         return getattr(self.stream, attr)
-# sys.stdout = Unbuffered(sys.stdout)
+#Make sure we don't buffer
+class Unbuffered(object):
+    def __init__(self, stream):
+        self.stream = stream
+
+    def write(self, data):
+        self.stream.write(data)
+        self.stream.flush()
+
+    def __getattr__(self, attr):
+        return getattr(self.stream, attr)
+sys.stdout = Unbuffered(sys.stdout)
 
 
 if __name__ == "__main__":
@@ -138,10 +138,10 @@ if __name__ == "__main__":
     # open XML file and CSV file simultaneously
     with bz2.open(args.filename_input, "rt", encoding="utf-8") as xml_file:
         with open(args.filename_nodes, "w", newline="", encoding="utf-8") as node_file:
-            node_writer = csv.writer(node_file)
+            node_writer = csv.writer(node_file, doublequote=False, escapechar="\\")
             node_writer.writerow(["id:ID", "title", "content"])  # CSV headers
             with open(args.filename_edges, "w", newline="", encoding="utf-8") as edge_file:
-                edge_writer = csv.writer(edge_file)
+                edge_writer = csv.writer(edge_file, doublequote=False, escapechar="\\")
                 edge_writer.writerow([":START_ID", ":END_ID"])  # CSV headers
 
                 # Iterate through pages in the XML file

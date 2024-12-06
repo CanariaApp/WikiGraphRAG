@@ -1,7 +1,5 @@
 import re
-import csv
 import hashlib
-import pandas as pd
 from pymongo import UpdateOne
 from datetime import datetime
 from functools import partial
@@ -10,6 +8,8 @@ from src.parse.xml_loader import load_xml
 from datasets import load_dataset
 import numpy as np
 from collections import defaultdict
+import pandas as pd
+import os
 
 
 # keep a set for unique titles and links
@@ -234,8 +234,36 @@ def iterate_pages_from_export_file(
     batch_size = kwargs.get("batch_size", 100)
     batch_update = []
 
-    #Start streaming in the bge3 dataset for page paragraphs
-    bge3_dataset = iter(load_dataset("Upstash/wikipedia-2024-06-bge-m3", "en", split="train", streaming=True))
+    class Parquet_iterator:
+        def __init__(self, parquet_file_loc):
+            #Load the first file
+            self.parquet_file_loc = parquet_file_loc
+            self.data_iter = iter(pd.read_parquet(self.parquet_file_loc+"/000.parquet").to_dict(orient='records'))
+            self.file_ind = 0
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            res = next(self.data_iter,None)
+            if res is None: #EOF
+                file_ind_text = str(self.file_ind+1).zfill(3)
+                parquet_file_name = self.parquet_file_loc + "/" + file_ind_text + ".parquet"
+                if os.path.exists(parquet_file_name):
+                    self.file_ind += 1
+                    self.data_iter = iter(pd.read_parquet(parquet_file_name).to_dict(orient='records'))
+                    res = next(self.data_iter, None)
+            return res
+
+
+    ##### BGE3 from downloaded files
+    # Start reading in bge3 dataset for page paragraphs
+    bge3_dataset = Parquet_iterator('src/data/embeddings')
+
+    ##### BGE3 streamed from Huggingface
+    # #Start streaming in the bge3 dataset for page paragraphs
+    # bge3_dataset = iter(load_dataset("Upstash/wikipedia-2024-06-bge-m3", "en", split="train", streaming=True))
+
     last_loaded_paragraph = next(bge3_dataset)
 
     def mongo_add_paragraph(rec_id, title, content, embedding ):
@@ -269,13 +297,14 @@ def iterate_pages_from_export_file(
 
     def on_element(dto):
         nonlocal last_loaded_paragraph
+        if last_loaded_paragraph is None:  # No more bge3 data
+            return
+
         page = element_mapper(dto)
         if page is None:
             return
-
-        # pass each page to the handlers
-        [fn(page) for fn in page_handlers]
-
+        if not isinstance(page, ContentPage):
+            return
 
         #Check if the current page corresponds to the current paragraph title
         curr_title = last_loaded_paragraph["title"]
@@ -283,11 +312,17 @@ def iterate_pages_from_export_file(
         if (page.title != curr_title) and (page.title.lower() != wiki_redirects.get(curr_title.lower(),"")) and (page.title.lower().replace("_"," ") != curr_title.lower().replace("_"," ")):
             return #Not the page you are looking for, go to next, since they are sorted on title
 
+        # pass each page to the handlers
+        [fn(page) for fn in page_handlers]
+
+
         # Accumulating paragraphs corresponding to this page title, taking advantage of the fact that the dataset is sorted on it
         bge3_paragraphs = []
         while (last_loaded_paragraph["title"] == curr_title):
             bge3_paragraphs.append(last_loaded_paragraph)
-            last_loaded_paragraph = next(bge3_dataset)
+            last_loaded_paragraph = next(bge3_dataset,None)
+            if last_loaded_paragraph is None: #No more bge3 data
+                break
         #Break up page content into paragraphs, keeping the ones longer than 100 characters
         page_paragraphs = [p for p in page.content.split('\n') if len(p)>10]
         if (len(page_paragraphs) == 0): #not sure if this would ever happen
@@ -338,46 +373,46 @@ def iterate_pages_from_export_file(
                 ref_paragraph_word_set = set(bge3_paragraphs[bge3_ind]["text"].replace("\'","").split(' '))
                 bge3_newline_count = bge3_paragraphs[bge3_ind]["text"].count("\n")
 
-        if isinstance(page, ContentPage):
-            par_title_norm = wiki_redirects.get(bge3_paragraphs[-1]["title"].lower(),bge3_paragraphs[-1]["title"].lower()) #get the current title, replace if it is a redirect
-            for ind, par in enumerate(bge3_paragraphs):
-                par_id =  par_title_norm+"_"+str(ind)
-                # Insert page
+
+        par_title_norm = wiki_redirects.get(bge3_paragraphs[-1]["title"].lower(),bge3_paragraphs[-1]["title"].lower()) #get the current title, replace if it is a redirect
+        for ind, par in enumerate(bge3_paragraphs):
+            par_id =  par_title_norm+"_"+str(ind)
+            # Insert page
+            if mongodb_client is not None:
+                batch_update.append( mongo_add_paragraph(par_id, par["title"], par["text"], par["embedding"].tolist()) )
+            if node_writer is not None:
+                node_writer.writerow([par_id, par["title"], par["text"].replace("\n"," ")])
+            # Insert reference links within the page
+            if ( ind==0 ): #first paragraph
+                #Link it to all other paragraphs on the page
+                for target_ind in range(1,len(bge3_paragraphs)):
+                    target_id = par_title_norm + "_" + str(target_ind)
+                    if mongodb_client is not None:
+                        batch_update.append( mongo_add_ref(par_id, target_id, par["title"] ) )
+                    if edge_writer is not None:
+                        edge_writer.writerow([par_id, target_id ])
+            elif ( ind < (len(bge3_paragraphs)-1) ):
+                #Link it to the next paragraph
+                target_id = par_title_norm + "_" + str(ind+1)
                 if mongodb_client is not None:
-                    batch_update.append( mongo_add_paragraph(par_id, par["title"], par["text"], par["embedding"]) )
-                # if node_writer is not None:
-                #    node_writer.writerow([par_id, par["title"], par["text"].replace("\n"," ")])
-                # Insert reference links within the page
-                if ( ind==0 ): #first paragraph
-                    #Link it to all other paragraphs on the page
-                    for target_ind in range(1,len(bge3_paragraphs)):
-                        target_id = par_title_norm + "_" + str(target_ind)
-                        if mongodb_client is not None:
-                            batch_update.append( mongo_add_ref(par_id, target_id, par["title"] ) )
-                        # if edge_writer is not None:
-                        #     edge_writer.writerow([par_id, target_id ])
-                elif ( ind < (len(bge3_paragraphs)-1) ):
-                    #Link it to the next paragraph
-                    target_id = par_title_norm + "_" + str(ind+1)
-                    if mongodb_client is not None:
-                        batch_update.append(mongo_add_ref(par_id, target_id, par["title"]))
-                    if edge_writer is not None:
-                        edge_writer.writerow([par_id, target_id ])
-                for ref in bge3_paragraph_refs[par["id"]]:
-                    #Insert reference links to other pages
-                    target_id = ref+"_0"
-                    if mongodb_client is not None:
-                        batch_update.append(mongo_add_ref(par_id, target_id, ref))
-                    if edge_writer is not None:
-                        edge_writer.writerow([par_id, target_id ])
+                    batch_update.append(mongo_add_ref(par_id, target_id, par["title"]))
+                if edge_writer is not None:
+                    edge_writer.writerow([par_id, target_id ])
+            for ref in bge3_paragraph_refs[par["id"]]:
+                #Insert reference links to other pages
+                target_id = ref+"_0"
+                if mongodb_client is not None:
+                    batch_update.append(mongo_add_ref(par_id, target_id, ref))
+                if edge_writer is not None:
+                    edge_writer.writerow([par_id, target_id ])
 
-                    # #Doing this is not necessary, we can drop links that point nowhere at a later time
-                    # #Insert page the reference points to
-                    # batch_update.append( mongo_add_paragraph(ref + "_0", ref, ???, ???]) )
+                # #Doing this is not necessary, we can drop links that point nowhere at a later time
+                # #Insert page the reference points to
+                # batch_update.append( mongo_add_paragraph(ref + "_0", ref, ???, ???]) )
 
-                    if (len(batch_update) >= batch_size):
-                        mongodb_client.bulk_write("pages", batch_update)
-                        batch_update.clear()
+                if (len(batch_update) >= batch_size):
+                    mongodb_client.bulk_write("pages", batch_update)
+                    batch_update.clear()
 
     load_xml(file, on_element)
 
