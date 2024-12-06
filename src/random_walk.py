@@ -82,7 +82,7 @@ class RandomWalk():
         temp = 0.1
         if (temp>0): #Bolztmann
             w = np.exp(np.array(link_scores)/temp)
-        else: #full freedy
+        else: #full greedy
             w = np.zeros(len(link_scores))
             w[np.argmax(link_scores)] = 1.0
 

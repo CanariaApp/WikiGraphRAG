@@ -225,6 +225,7 @@ def iterate_pages_from_export_file(
     node_writer=None,
     edge_writer=None,
     mongodb_client: MongoDBJobDB=None,
+    wiki_redirects=defaultdict(None),
     **kwargs,
 ):
     element_mapper = build_dict_to_page_mapper()
@@ -275,10 +276,13 @@ def iterate_pages_from_export_file(
         # pass each page to the handlers
         [fn(page) for fn in page_handlers]
 
+
         #Check if the current page corresponds to the current paragraph title
         curr_title = last_loaded_paragraph["title"]
-        if page.title != curr_title:
+        #print(page.title,curr_title)
+        if (page.title != curr_title) and (page.title.lower() != wiki_redirects.get(curr_title.lower(),"")) and (page.title.lower().replace("_"," ") != curr_title.lower().replace("_"," ")):
             return #Not the page you are looking for, go to next, since they are sorted on title
+
         # Accumulating paragraphs corresponding to this page title, taking advantage of the fact that the dataset is sorted on it
         bge3_paragraphs = []
         while (last_loaded_paragraph["title"] == curr_title):
@@ -294,12 +298,15 @@ def iterate_pages_from_export_file(
         bge3_ind = 0
         ref_paragraph_word_set = set(bge3_paragraphs[bge3_ind]["text"].replace("\'","").split(' '))
         bge3_newline_count = bge3_paragraphs[bge3_ind]["text"].count("\n")
+        bge3_length = len(bge3_paragraphs[bge3_ind]["text"])
         bge3_paragraph_refs = defaultdict(list)
         ref_pattern = re.compile("\\[\\[([^\\]]+)\\]\\]") # References look like [[target]] or [[target|display text]]
 
         for par_ind,par in enumerate(page_paragraphs):
             if (bge3_newline_count > 0): #Unfortunately the BGE3 dataset has some paragraphs with multiple newlines
                 par = '\n'.join(page_paragraphs[par_ind:(min(par_ind+bge3_newline_count, len(page_paragraphs)))])
+            if (len(par)<bge3_length/4) and (abs(len(par)-bge3_length)>200): #this paragraph is too short
+                continue
             content_minus_refs = re.sub("<ref>.*?</ref>", "", par)
             #content_cleaned = re.sub(r'{{.*?}}',"",re.sub(r'\[\[(?:[^|\]]*\|)?([^]]+)\]\]', r'\1', content_minus_refs).replace("'''","").replace("\'",""))
             content_cleaned = re.sub(r'[*"`\']|({{.*?}})', "", re.sub(r'\[\[(?:[^|\]]*\|)?([^]]+)\]\]', r'\1', content_minus_refs))
@@ -319,41 +326,50 @@ def iterate_pages_from_export_file(
             #     print("\n")
 
             if (score > 0.5):
-                bge3_paragraph_refs[bge3_paragraphs[bge3_ind]["id"]] = [x.split("|")[0].split("#")[0] for x in re.findall(ref_pattern, content_minus_refs)]
+                refs = [x.split("|")[0].split("#")[0].lower() for x in re.findall(ref_pattern, content_minus_refs)]
+                #Apply redirects
+                for i,ref in enumerate(refs):
+                    if ref in wiki_redirects:
+                        refs[i] = wiki_redirects[ref]
+                bge3_paragraph_refs[bge3_paragraphs[bge3_ind]["id"]] = refs
                 bge3_ind += 1
                 if (bge3_ind >= len(bge3_paragraphs)):
                     break  # stop if nothing is left to match
                 ref_paragraph_word_set = set(bge3_paragraphs[bge3_ind]["text"].replace("\'","").split(' '))
                 bge3_newline_count = bge3_paragraphs[bge3_ind]["text"].count("\n")
 
-        # write the title to the CSV file
-        #if isinstance(page, ContentPage) and node_writer is not None:
-        #    node_writer.writerow([page.title])
-
-        # if the page is a ContentPage, write its links to the CSV file
-        #if isinstance(page, ContentPage) and edge_writer is not None:
-        #    for ref, pos in page.references:
-        #        edge_writer.writerow([page.title, ref.title, pos])
-        
-        # if the page is a ContentPage, insert it into MongoDB
-        if isinstance(page, ContentPage) and mongodb_client is not None:
-            max_par_ind = int(bge3_paragraphs[-1]["id"].split("_")[-1])
+        if isinstance(page, ContentPage):
+            par_title_norm = wiki_redirects.get(bge3_paragraphs[-1]["title"].lower(),bge3_paragraphs[-1]["title"].lower()) #get the current title, replace if it is a redirect
             for ind, par in enumerate(bge3_paragraphs):
-                par_id =  par["title"]+"_"+str(ind)
+                par_id =  par_title_norm+"_"+str(ind)
                 # Insert page
-                batch_update.append( mongo_add_paragraph(par_id, par["title"], par["text"], par["embedding"]) )
+                if mongodb_client is not None:
+                    batch_update.append( mongo_add_paragraph(par_id, par["title"], par["text"], par["embedding"]) )
+                # if node_writer is not None:
+                #    node_writer.writerow([par_id, par["title"], par["text"].replace("\n"," ")])
                 # Insert reference links within the page
                 if ( ind==0 ): #first paragraph
                     #Link it to all other paragraphs on the page
                     for target_ind in range(1,len(bge3_paragraphs)):
-                        batch_update.append( mongo_add_ref(par_id, par["title"] + "_" + str(target_ind), par["title"] ) )
+                        target_id = par_title_norm + "_" + str(target_ind)
+                        if mongodb_client is not None:
+                            batch_update.append( mongo_add_ref(par_id, target_id, par["title"] ) )
+                        # if edge_writer is not None:
+                        #     edge_writer.writerow([par_id, target_id ])
                 elif ( ind < (len(bge3_paragraphs)-1) ):
                     #Link it to the next paragraph
-                    batch_update.append(mongo_add_ref(par_id, par["title"] + "_" + str(ind+1), par["title"]))
+                    target_id = par_title_norm + "_" + str(ind+1)
+                    if mongodb_client is not None:
+                        batch_update.append(mongo_add_ref(par_id, target_id, par["title"]))
+                    if edge_writer is not None:
+                        edge_writer.writerow([par_id, target_id ])
                 for ref in bge3_paragraph_refs[par["id"]]:
                     #Insert reference links to other pages
-                    batch_update.append(mongo_add_ref(par_id, ref+"_0", ref))
-
+                    target_id = ref+"_0"
+                    if mongodb_client is not None:
+                        batch_update.append(mongo_add_ref(par_id, target_id, ref))
+                    if edge_writer is not None:
+                        edge_writer.writerow([par_id, target_id ])
 
                     # #Doing this is not necessary, we can drop links that point nowhere at a later time
                     # #Insert page the reference points to
@@ -364,3 +380,23 @@ def iterate_pages_from_export_file(
                         batch_update.clear()
 
     load_xml(file, on_element)
+
+
+def iterate_pages_to_find_redirects(file, page_handlers=[], **kwargs):
+    wiki_redirects = defaultdict(None)
+    element_mapper = build_dict_to_page_mapper()
+
+    def on_element(dto):
+        page = element_mapper(dto)
+        if page is None:
+            return
+
+        # pass each page to the handlers
+        [fn(page) for fn in page_handlers]
+
+        if isinstance(page, RedirectPage):
+            if ( page.title.lower() != page.target.title.title.lower() ):
+                wiki_redirects[page.title.lower()] = page.target.title.title.lower()
+
+    load_xml(file, on_element)
+    return  wiki_redirects

@@ -29,7 +29,7 @@ def reranker(paths):
     #Reorder paths and documents based on ranking method
 
     #Simple reranking based on similarity score of the full context
-    ranked_paths = paths.sort(key = lambda p : p.scores[-1])
+    ranked_paths = paths.sort(key = lambda p : np.max(p.scores))
 
     #Get ordered document lists from paths
     docs = []
