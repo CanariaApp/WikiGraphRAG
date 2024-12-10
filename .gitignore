@@ -18,3 +18,4 @@ __pycache__
 src/data/admin/wiki_redirects - Copy.pkl
 src/data/admin/wiki_redirects.pkl
 src/data/admin/edges/references.csv
+src/data/admin/edges/edges.csv.bz2

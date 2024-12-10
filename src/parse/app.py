@@ -57,19 +57,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--filename_input",
         type=str,
-        default="data/wikidump/enwiki-latest-pages-articles-multistream.xml",
+        default="src/data/wikidump/enwiki-20240601-pages-articles-multistream.xml",
         help="input filename",
     )
     parser.add_argument(
         "--filename_nodes",
         type=str,
-        default="data/admin/nodes/title.csv",
+        default="src/data/admin/nodes/paragraphs.csv.bz2",
         help="output filename",
     )
     parser.add_argument(
         "--filename_edges",
         type=str,
-        default="data/admin/edges/title_title.csv",
+        default="src/data/admin/edges/edges.csv.bz2",
         help="output filename",
     )
     parser.add_argument(
@@ -93,6 +93,12 @@ if __name__ == "__main__":
         type=str,
         default="src/data/admin/wiki_redirects.pkl",
         help="name of the pickle file where the wiki page redirects are saved",
+    )
+    parser.add_argument(
+        "--embeddings_dir",
+        type=str,
+        default=None,
+        help="location of the embeddings parquet files, if None, then the embeddings are streamed from Huggingface",
     )
     args = parser.parse_args()
 
@@ -136,19 +142,22 @@ if __name__ == "__main__":
     mongodb_client.create_index("pages", "id")
 
     # open XML file and CSV file simultaneously
-    with bz2.open(args.filename_input, "rt", encoding="utf-8") as xml_file:
-        with open(args.filename_nodes, "w", newline="", encoding="utf-8") as node_file:
+    #with bz2.open(args.filename_input, "rt", encoding="utf-8") as xml_file:
+    with open(args.filename_input, "r", encoding="utf-8") as xml_file:
+        with bz2.open(args.filename_nodes, "wt", newline="", encoding="utf-8") as node_file:
             node_writer = csv.writer(node_file, doublequote=False, escapechar="\\")
             node_writer.writerow(["id:ID", "title", "content"])  # CSV headers
-            with open(args.filename_edges, "w", newline="", encoding="utf-8") as edge_file:
+            with bz2.open(args.filename_edges, "wt", newline="", encoding="utf-8") as edge_file:
                 edge_writer = csv.writer(edge_file, doublequote=False, escapechar="\\")
                 edge_writer.writerow([":START_ID", ":END_ID"])  # CSV headers
 
                 # Iterate through pages in the XML file
                 iterate_pages_from_export_file(
                     xml_file,
-                    page_handlers=[progress_indicator.on_element],
+                    page_handlers=[],
+                    counter=progress_indicator.on_element,
                     wiki_redirects=wiki_redirects,
+                    embeddings_dir=args.embeddings_dir,
                     node_writer=node_writer if args.insert_nodes_csv else None,
                     edge_writer=edge_writer if args.insert_edges_csv else None,
                     mongodb_client=mongodb_client,

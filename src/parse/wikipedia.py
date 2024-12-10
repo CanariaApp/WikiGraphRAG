@@ -219,13 +219,18 @@ def build_dict_to_page_mapper():
 
     return on_element
 
+def empty_func(_):
+    pass
+
 def iterate_pages_from_export_file(
     file,
     page_handlers=[],
+    counter=empty_func,
     node_writer=None,
     edge_writer=None,
     mongodb_client: MongoDBJobDB=None,
     wiki_redirects=defaultdict(None),
+    embeddings_dir=None,
     **kwargs,
 ):
     element_mapper = build_dict_to_page_mapper()
@@ -238,6 +243,7 @@ def iterate_pages_from_export_file(
         def __init__(self, parquet_file_loc):
             #Load the first file
             self.parquet_file_loc = parquet_file_loc
+            print("\n Loading embeddings from "+self.parquet_file_loc+"/000.parquet")
             self.data_iter = iter(pd.read_parquet(self.parquet_file_loc+"/000.parquet").to_dict(orient='records'))
             self.file_ind = 0
 
@@ -251,20 +257,24 @@ def iterate_pages_from_export_file(
                 parquet_file_name = self.parquet_file_loc + "/" + file_ind_text + ".parquet"
                 if os.path.exists(parquet_file_name):
                     self.file_ind += 1
+                    print("\n Loading embeddings from " + parquet_file_name)
                     self.data_iter = iter(pd.read_parquet(parquet_file_name).to_dict(orient='records'))
                     res = next(self.data_iter, None)
+                else:
+                    print("\n No more parquet files to load, "+parquet_file_name+" does not exist")
             return res
 
 
-    ##### BGE3 from downloaded files
-    # Start reading in bge3 dataset for page paragraphs
-    bge3_dataset = Parquet_iterator('src/data/embeddings')
+    if embeddings_dir is not None:
+        ##### BGE3 from downloaded files
+        # Start reading in bge3 dataset for page paragraphs
+        bge3_dataset = Parquet_iterator(embeddings_dir)
+    else:
+        ##### BGE3 streamed from Huggingface
+        # #Start streaming in the bge3 dataset for page paragraphs
+        bge3_dataset = iter(load_dataset("Upstash/wikipedia-2024-06-bge-m3", "en", split="train", streaming=True))
 
-    ##### BGE3 streamed from Huggingface
-    # #Start streaming in the bge3 dataset for page paragraphs
-    # bge3_dataset = iter(load_dataset("Upstash/wikipedia-2024-06-bge-m3", "en", split="train", streaming=True))
-
-    last_loaded_paragraph = next(bge3_dataset)
+    last_loaded_paragraph = next(bge3_dataset,None)
 
     def mongo_add_paragraph(rec_id, title, content, embedding ):
         return UpdateOne(
@@ -297,6 +307,8 @@ def iterate_pages_from_export_file(
 
     def on_element(dto):
         nonlocal last_loaded_paragraph
+        counter(dto)
+
         if last_loaded_paragraph is None:  # No more bge3 data
             return
 

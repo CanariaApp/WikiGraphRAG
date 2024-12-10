@@ -2,7 +2,7 @@ import time
 from tqdm import tqdm
 
 class ProgressIndicator:
-    def __init__(self, seconds_between_updates, tot_page_number=7e6):
+    def __init__(self, seconds_between_updates, tot_page_number=2.4e7):
         self.page_count = 0
         self.last_page_count = 0
         self.last_update_time = self.start_time = time.time()
