@@ -22,7 +22,7 @@ docker-compose up -d
 ### Build DB
 Start the relevant containers from the project root directory with
 ```bash
-python .\src\parse\prepare_wiki_db.py <OPTIONS>"
+python .\src\parse\prepare_wiki_db.py <OPTIONS>
 ```
 If you have already downloaded the embeddings, add the location with the ```--embeddings_dir```
 To create compressed csv files of nodes and references for future import into Neo4j, add ```--insert_nodes_csv --insert_edges_csv```

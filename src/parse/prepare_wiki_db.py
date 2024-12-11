@@ -164,3 +164,5 @@ if __name__ == "__main__":
                     batch_size=args.batch_size,
                     num_threads=args.num_threads,
                 )
+
+    mongodb_client.close()

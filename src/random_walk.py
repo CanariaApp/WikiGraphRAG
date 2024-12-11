@@ -1,6 +1,5 @@
 import numpy as np
 
-
 class Link():
     #Link between two nodes in the graph DB
     def __init__(self, origin, target, **kwargs):
