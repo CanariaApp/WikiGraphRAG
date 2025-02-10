@@ -111,6 +111,32 @@ class PageLocation:
     def __ne__(self, other):
         return not self.__eq__(other)
 
+class ParquetIterator:
+    def __init__(self, parquet_file_loc):
+        #Load the first file
+        self.parquet_file_loc = parquet_file_loc
+        print("\n Loading embeddings from "+self.parquet_file_loc+"/000.parquet")
+        self.data_iter = iter(pd.read_parquet(self.parquet_file_loc+"/000.parquet").to_dict(orient='records'))
+        self.file_ind = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        res = next(self.data_iter,None)
+        if res is None: #EOF
+            file_ind_text = str(self.file_ind+1).zfill(3)
+            parquet_file_name = self.parquet_file_loc + "/" + file_ind_text + ".parquet"
+            if os.path.exists(parquet_file_name):
+                self.file_ind += 1
+                print("\n Loading embeddings from " + parquet_file_name)
+                self.data_iter = iter(pd.read_parquet(parquet_file_name).to_dict(orient='records'))
+                res = next(self.data_iter, None)
+            else:
+                print("\n No more parquet files to load, "+parquet_file_name+" does not exist")
+        if res is None:
+            raise StopIteration
+        return res
 
 def _extract_references(content):
     """
@@ -239,36 +265,10 @@ def iterate_pages_from_export_file(
     batch_size = kwargs.get("batch_size", 100)
     batch_update = []
 
-    class Parquet_iterator:
-        def __init__(self, parquet_file_loc):
-            #Load the first file
-            self.parquet_file_loc = parquet_file_loc
-            print("\n Loading embeddings from "+self.parquet_file_loc+"/000.parquet")
-            self.data_iter = iter(pd.read_parquet(self.parquet_file_loc+"/000.parquet").to_dict(orient='records'))
-            self.file_ind = 0
-
-        def __iter__(self):
-            return self
-
-        def __next__(self):
-            res = next(self.data_iter,None)
-            if res is None: #EOF
-                file_ind_text = str(self.file_ind+1).zfill(3)
-                parquet_file_name = self.parquet_file_loc + "/" + file_ind_text + ".parquet"
-                if os.path.exists(parquet_file_name):
-                    self.file_ind += 1
-                    print("\n Loading embeddings from " + parquet_file_name)
-                    self.data_iter = iter(pd.read_parquet(parquet_file_name).to_dict(orient='records'))
-                    res = next(self.data_iter, None)
-                else:
-                    print("\n No more parquet files to load, "+parquet_file_name+" does not exist")
-            return res
-
-
     if embeddings_dir is not None:
         ##### BGE3 from downloaded files
         # Start reading in bge3 dataset for page paragraphs
-        bge3_dataset = Parquet_iterator(embeddings_dir)
+        bge3_dataset = ParquetIterator(embeddings_dir)
     else:
         ##### BGE3 streamed from Huggingface
         # #Start streaming in the bge3 dataset for page paragraphs
@@ -391,6 +391,7 @@ def iterate_pages_from_export_file(
             par_id =  par_title_norm+"_"+str(ind)
             # Insert page
             if mongodb_client is not None:
+                print(par["embedding"])
                 batch_update.append( mongo_add_paragraph(par_id, par["title"], par["text"], par["embedding"].tolist()) )
             if node_writer is not None:
                 node_writer.writerow([par_id, par["title"], par["text"].replace("\n"," ")])

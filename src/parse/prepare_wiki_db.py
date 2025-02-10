@@ -3,15 +3,11 @@
 Parse Wikipedia XML dump and prepare for neo4j admin import
 
 Usage:
-nohup python -m src.parse.app \
-    --batch_size 100000 \
-    --num_threads 4 \
-    --filename_input data/wikidump/enwiki-latest-pages-articles-multistream.xml \
-    --filename_nodes data/admin/nodes/title.csv \
-    --filename_edges data/embeddings/edges/title_title.csv\
-    --seconds_between_updates 0.1 \
-    > logs/parse.log &
+ nohup python ./src/parse/prepare_wiki_db.py
+    --insert_nodes_csv
     --insert_edges_csv
+    --embeddings_dir=src/data/embeddings
+    > log.txt &
 
 """
 import argparse
@@ -110,7 +106,8 @@ if __name__ == "__main__":
         progress_indicator = ProgressIndicator(
             seconds_between_updates=args.seconds_between_updates
         )
-        with bz2.open(args.filename_input, "rt", encoding="utf-8") as xml_file:
+        #with bz2.open(args.filename_input, "rt", encoding="utf-8") as xml_file:
+        with open(args.filename_input, "r", encoding="utf-8") as xml_file:
            wiki_redirects = iterate_pages_to_find_redirects( xml_file, page_handlers=[progress_indicator.on_element])
         # Save dictionary to pickle file
         with open(args.filename_wiki_redirects, 'wb') as f:
@@ -140,7 +137,6 @@ if __name__ == "__main__":
     )
     mongodb_client.drop_collection("pages")
     mongodb_client.create_index("pages", "id")
-
     # open XML file and CSV file simultaneously
     #with bz2.open(args.filename_input, "rt", encoding="utf-8") as xml_file:
     with open(args.filename_input, "r", encoding="utf-8") as xml_file:

@@ -1,22 +1,22 @@
 services:
-  wikidump5x-aerospike:
-    container_name: wikidump5x-aerospike
-    image: aerospike/aerospike-server:7.1.0.6_1
-    ports:
-      - 3001:3000
-    environment:
-      - DEFAULT_TTL=0 # Default time-to-live for records
-      - MEM_GB=16
-      - NAMESPACE=wiki
-      - STORAGE_GB=128
-    volumes:
-      - /db/aerospike/wikidump5x:/opt/aerospike/data
-    deploy:
-      resources:
-        limits:
-          memory: 18G
-        reservations:
-          memory: 16G
+  # wikidump5x-aerospike:
+    # container_name: wikidump5x-aerospike
+    # image: aerospike/aerospike-server:7.1.0.6_1
+    # ports:
+      # - 3001:3000
+    # environment:
+      # - DEFAULT_TTL=0 # Default time-to-live for records
+      # - MEM_GB=16
+      # - NAMESPACE=wiki
+      # - STORAGE_GB=128
+    # volumes:
+      # - /db/aerospike/wikidump5x:/opt/aerospike/data
+    # deploy:
+      # resources:
+        # limits:
+          # memory: 18G
+        # reservations:
+          # memory: 16G
     
   wikidump5x-mongodb:
     container_name: wikidump5x-mongodb

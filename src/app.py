@@ -166,6 +166,9 @@ if __name__ == "__main__":
     def embeddingfunc(text):
         return transformer.encode(sentences=text,show_progress_bar=False,normalize_embeddings=True)
 
+
+
+
     #Start gradio interface
     gr_interface.launch()
 

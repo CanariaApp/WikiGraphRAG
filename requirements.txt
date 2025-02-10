@@ -45,7 +45,7 @@ ptyprocess==0.7.0
 pure_eval==0.2.3
 pyarrow==17.0.0
 Pygments==2.18.0
-pymongo
+pymongo~=4.10.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
 pytz==2024.2
@@ -59,6 +59,8 @@ traitlets==5.14.3
 typing_extensions==4.12.2
 tzdata==2024.2
 urllib3==2.2.3
+vllm==0.6.1.post2
+vllm-flash-attn==2.6.1
 wcwidth==0.2.13
 xxhash==3.5.0
 yarl==1.13.1
@@ -69,3 +71,5 @@ torchvision
 torchaudio
 
 
+
+vicinity[faiss]~=0.4.0
