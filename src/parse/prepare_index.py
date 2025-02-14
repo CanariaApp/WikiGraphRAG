@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Parse Wikipedia XML dump and prepare for neo4j admin import
+Creates FAISS quantized  vector search index for BGE3 embeddings of wikipedia data
 
 Usage:
  nohup python ./src/parse/prepare_index.py
@@ -11,7 +11,6 @@ Usage:
 """
 
 import argparse
-import os
 import numpy as np
 import pickle
 import faiss
@@ -55,7 +54,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--reservoir_size",
         type=int,
-        default=200000,
+        default=200001,
         help="size of the representative sample used to train the index",
     )
     parser.add_argument(
@@ -91,8 +90,6 @@ if __name__ == "__main__":
         wiki_redirects = pickle.load(f)
     print(f"Wiki page dictionary loaded from {args.filename_wiki_redirects}.")
 
-
-
     #Init index
     quantizer = faiss.IndexFlatL2(1024) #BGE3 has a dimensionality of 1024
     index = faiss.IndexIVFPQ(quantizer, 1024, args.index_ncentroids, args.index_nsubquantizers, args.index_nbits)
@@ -102,7 +99,7 @@ if __name__ == "__main__":
     reservoir=[]
     reservoir_ind = [] #to keep track of what indices we put into the reservoir
     for i,p in enumerate(bge3_dataset):
-        if not (i%100000): print("   Processing element %d",i)
+        if not (i%100000): print(f"   Processing element {i}")
         if (i<args.reservoir_size):
             reservoir.append(p)
             reservoir_ind.append(i)
@@ -119,7 +116,7 @@ if __name__ == "__main__":
     index.add(par_vectors)
     #Init index to id match list
     full_id_list=par_ids
-    print("Index trained on representative sample of size %d", args.reservoir_size)
+    print("Index trained on representative sample of size ", args.reservoir_size)
 
     print("Adding remaining vectors to index...")
     #Reset data stream
@@ -130,7 +127,7 @@ if __name__ == "__main__":
     #Add the rest to the index, so we need to go over again and add it to the index in reservoir_size chunks
     par_list = []
     for i,p in enumerate(bge3_dataset):
-        if not (i % 100000): print("   Processing element %d")
+        if not (i % 100000): print(f"   Processing element {i}")
         if (i==next_res_ind): #this means this one was already in the reservoir so we don't want to put it in twice
             next_res_ind = next(reservoir_ind_iter, -1)
         else:
@@ -145,70 +142,34 @@ if __name__ == "__main__":
                 #keep ids
                 full_id_list += par_ids
     #Do the final ones
-    par_ids, par_vectors = par_list_to_ids_and_vectors(par_list, wiki_redirects=wiki_redirects)
+    if len(par_list):
+        par_ids, par_vectors = par_list_to_ids_and_vectors(par_list, wiki_redirects=wiki_redirects)
     #Add to index
     index.add(par_vectors)
     #keep ids
     full_id_list += par_ids
-    print("All %d vectors added to index...",i)
+    print(f"All {i+1} vectors added to index...")
 
     #Save index data
     with open(args.index_filename, 'wb') as f:
         pickle.dump([index, full_id_list], f)
     print("Index saved to "+args.index_filename)
-#     kkk
-#
-#
-#
-#
-#
-#
-#
-# path="../data/embeddings/000.parquet"
-# os.path.exists(path)
-# data = pd.read_parquet(path)
-# items = data["id"]
-# vectors1 = np.stack(data["embedding"])
-# #vectors=vectors1+0
-# d=vectors1.shape[1]
-#
-# data = pd.read_parquet("../data/embeddings/001.parquet")
-# vectors2 = np.stack(data["embedding"])
-# #index.add(vectors2)
-# #print(asizeof.asizeof(index))
-# vectors = np.vstack([vectors1,vectors2])
-#
-#
-# ncentroids = 5000
-# m = 128                             # number of subquantizers, def 8
-# nbits = 8 #specifies that each sub-vector is encoded as nbits bitss
-# k = 4 #number of nearest neighbors
-# quantizer = faiss.IndexFlatL2(d)  # this remains the same
-# index = faiss.IndexIVFPQ(quantizer, d, ncentroids, m, nbits)
-# index.train(vectors)
-#
-# #index = faiss.IndexFlatL2(d)  #
-#
-#
-# index.add(vectors)
-# D, I = index.search(vectors[:5], k) # sanity check
-#
-# #print(I)
-# #print(D)
-# #print(asizeof.asizeof(index))
-#
-#
-#
-#
-#
-# for i in range(200):
-#     vectors2 = np.random.random(vectors.shape)
-#
-#     index.add(vectors2)
-#     D, I = index.search(vectors2[:5], k)  # sanity check
-#
-#     #print(I)
-#     #print(D)
-#     #print(asizeof.asizeof(index))
-#
-# kkkk
+
+
+
+    # #Get BGE3 embedding data
+    # bge3_dataset = init_bge3_data(args.embeddings_dir)
+    #
+    # with open(args.filename_wiki_redirects, 'rb') as f:
+    #     wiki_redirects = pickle.load(f)
+    # print(f"Wiki page dictionary loaded from {args.filename_wiki_redirects}.")
+    #
+    # with open(args.index_filename, 'rb') as f:
+    #     temp = pickle.load(f)
+    # index = temp[0]
+    # full_id_list = temp[1]
+    # par_list = [next(bge3_dataset) for i in range(1000)]
+    # par_ids, par_vectors = par_list_to_ids_and_vectors(par_list, wiki_redirects=wiki_redirects)
+    # D, I = index.search(par_vectors[:5,:], 2) # sanity check
+
+
