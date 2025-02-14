@@ -54,7 +54,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--reservoir_size",
         type=int,
-        default=200001,
+        default=5000000,
         help="size of the representative sample used to train the index",
     )
     parser.add_argument(
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     reservoir=[]
     reservoir_ind = [] #to keep track of what indices we put into the reservoir
     for i,p in enumerate(bge3_dataset):
-        if not (i%100000): print(f"   Processing element {i}")
+        #if not (i%100000): print(f"   Processing element {i}")
         if (i<args.reservoir_size):
             reservoir.append(p)
             reservoir_ind.append(i)
@@ -127,7 +127,7 @@ if __name__ == "__main__":
     #Add the rest to the index, so we need to go over again and add it to the index in reservoir_size chunks
     par_list = []
     for i,p in enumerate(bge3_dataset):
-        if not (i % 100000): print(f"   Processing element {i}")
+        #if not (i % 100000): print(f"   Processing element {i}")
         if (i==next_res_ind): #this means this one was already in the reservoir so we don't want to put it in twice
             next_res_ind = next(reservoir_ind_iter, -1)
         else:
