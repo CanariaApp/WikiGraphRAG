@@ -3,20 +3,24 @@ from dotenv import load_dotenv
 import time
 import pandas as pd
 from src.infra.connections_mongodb import MongoDBJobDB
+import numpy as np
 from sentence_transformers import SentenceTransformer
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 import gradio as gr
+from rag_base import retriever
 
 # Load environment variables
 load_dotenv()
 
 LLM_LIBRARY = sys.argv[1]
 LLM_MODEL = sys.argv[2]
+INDEX_PATH = sys.argv[3] #"src/data/admin/bge3_index.pkl"
 
 #Connect to DB
 mongodb_client = MongoDBJobDB(
     "mongodb://localhost:27018/",
+#"mongodb://76.24.32.213:27018/",
     "wikidump5x",
 )
 
@@ -65,22 +69,27 @@ else:
 def generate_answer(
         question, documents, max_context_length=500, max_answer_length=1000
 ):
+    start_time = time.time()
     try:
         if documents is None:
             context = ""
+            template = """Please provide an answer to the question. Keep the answer as short as possible. Respond "Unsure" if not sure about the answer. 
+            {context}
+
+            Question: {question}
+
+            Answer:"""
         else:
-            context = " ".join([doc["post"][:max_context_length] for doc in documents])
-
-        template = """Given the following detailed context from Stack Overflow posts, 
-        please provide a comprehensive and well-explained answer to the question. 
-        Make sure to cover different aspects and provide examples if possible
-
-        Context:
-        {context}
-
-        Question: {question}
-
-        Answer:"""
+            context = " \n ".join([doc["content"][0][:max_context_length] for doc in documents])
+            template = """Given the following detailed context from Wikipedia pages, 
+            please provide an answer to the question. Keep the answer as short as possible. Respond "Unsure" if not sure about the answer. 
+    
+            Context:
+            {context}
+    
+            Question: {question}
+    
+            Answer:"""
 
         prompt = PromptTemplate(
             template=template,
@@ -97,59 +106,77 @@ def generate_answer(
         )
 
         response = chain.invoke({"context": context, "question": question})
-        print(f"LLM Response: {response[:max_answer_length]}")
-        return response
+        print(f"LLM Response: {response[:max_answer_length].split("\n")[0]}")
+        #Return only the first line of the answer
+        return response[:max_answer_length].split("\n")[0], (time.time() - start_time)
 
     except Exception as e:
         print(f"Error generating answer: {e}")
-        return f"Sorry, I couldn't generate an answer. Error: {str(e)}"
+        return f"Sorry, I couldn't generate an answer. Error: {str(e)}", (time.time() - start_time)
 
-def vector_similarity_search(question, top_k=3):
-    start_time = time.time()
-    results = similarity_search_with_score(question, k=top_k)
-    search_time = time.time() - start_time
 
-    return results, search_time
 
-def stackoverflow_qa(question,top_k=3):
-    try:
+def wiki_qa(question, top_k=3, max_answer_length=100, n_walks=3, max_steps=3, max_context_doc_size=500):
+        #try:
         # Perform hybrid search
-        results, vector_time = vector_similarity_search(question,top_k=top_k)
-
-        # Generate answer using LLM with hybrid results
-        answer = generate_answer(question, results)
+        basic_docs, all_docs, vector_time, walk_time = retriever(question, embeddingfunc,embeddingfunc_direct_search,
+                                                                 mongodb_client.query_df, INDEX_PATH, n_walks=n_walks,
+                                                                 max_steps=max_steps, k_best=top_k)
 
         # Generate answer using LLM without context
-        answer_no_context = generate_answer(question, None)
+        answer_no_context, answer_no_context_time = generate_answer(question, None,max_answer_length=max_answer_length)
+
+        # Generate answer using LLM with hybrid results
+        answer_basic_context, answer_time_basic = generate_answer(question, basic_docs,max_answer_length=max_answer_length)
+
+        # Generate answer using LLM with hybrid results
+        answer_full_context, answer_time_full = generate_answer(question, all_docs,max_answer_length=max_answer_length)
+
+
 
         # Prepare document display for results
-        doc_display = "\n\n".join(
+        basic_context = "\n\n".join(
             [
-                f"Document {i + 1}:\n"
-                f"Content: {doc['post'][:500]}...\n"
-                f"Similarity Score: {doc['score']:.4f}"
-                for i, doc in enumerate(results)
+                f"Document {i + 1}:\n"+
+                f"Content: {doc['content'][0][:max_context_doc_size]}...\n"
+                for i, doc in enumerate(basic_docs)
+            ]
+        )
+        # Prepare document display for results
+        full_context = "\n\n".join(
+            [
+                f"Document {i + 1}:\n"+
+                f"Content: {doc['content'][0][:max_context_doc_size]}...\n"
+                for i, doc in enumerate(all_docs)
             ]
         )
 
         # Prepare timing information
-        timing_info = f"Vector Search Time: {vector_time:.4f} seconds"
+        timing_info = (f"Vector Search Time: {vector_time:.4f} seconds \n\n" +
+                       f"Random Walk Time: {walk_time:.4f} seconds \n\n" +
+                       f"LLM Time (no context): {answer_no_context_time:.4f} seconds \n\n" +
+                       f"LLM Time (basic context): {answer_time_basic:.4f} seconds \n\n" +
+                       f"LLM Time (full context): {answer_time_full:.4f} seconds \n\n")
 
-        return answer_no_context, answer, doc_display, timing_info
 
-    except Exception as e:
-        error_message = f"An error occurred: {type(e).__name__}, {str(e)}"
-        return error_message, "", ""
+        return answer_no_context, answer_basic_context, answer_full_context, basic_context,full_context, timing_info
+
+        # except Exception as e:
+        #     error_message = f"An error occurred: {type(e).__name__}, {str(e)}"
+        #     print(error_message)
+        #     return error_message, "", ""
 
 
 # Define the Gradio interface
 gr_interface = gr.Interface(
-    fn=stackoverflow_qa,
+    fn=wiki_qa,
     inputs=[gr.Textbox(lines=2, placeholder="Ask a question...")],
     outputs=[
         gr.Textbox(label="Generated Answer without context"),
-        gr.Textbox(label="Generated Answer with context"),
-        gr.Markdown(label="Hybrid Search Results"),
+        gr.Textbox(label="Generated Answer with basic context"),
+        gr.Textbox(label="Generated Answer with full context"),
+        gr.Markdown(label="Context from Vector Search"),
+        gr.Markdown(label="Context from Vector Search and Random Walk"),
         gr.Markdown(label="Search Timing Information"),
     ],
     title="Wiki GraphRAG Application with Random Walk",
@@ -158,13 +185,61 @@ gr_interface = gr.Interface(
 
 if __name__ == "__main__":
 
-    transformer = SentenceTransformer(
+    #Define embedding function to use
+    sentence_transformer_model = SentenceTransformer(
         "BAAI/bge-m3",
         revision="babcf60cae0a1f438d7ade582983d4ba462303c2",
         device="cpu", #cuda
     )
+    def embeddingfunc_direct_search(text):
+        return sentence_transformer_model.encode(sentences=text,show_progress_bar=False,normalize_embeddings=True)
+
+    # # Distill a Model2Vec model from a Sentence Transformer model
+    # from model2vec.distill import distill
+    # from model2vec import StaticModel
+    #
+    # # Load the model
+    # model_name = "bge-m3_m2v_model"
+    # try:
+    #     m2v_model = StaticModel.from_pretrained(model_name)
+    # except:
+    #     print(f"Model2Vec model {model_name} not found, trying to distill it from Sentence Transformers...")
+    #     start_time = time.time()
+    #     m2v_model = distill(model_name="BAAI/bge-m3",pca_dims=1024)
+    #     # Save the model
+    #     m2v_model.save_pretrained(model_name)
+    #     print(f"Distilling transformer model to Model2Vec took {(time.time() - start_time)/60} minutes")
+    #
+    # def embeddingfunc(text):
+    #     return m2v_model.encode(sentences=text,show_progress_bar=False,normalize_embeddings=True)
+
+    from model2vec import StaticModel
+    # Load a pretrained Model2Vec model
+    model2vec_model = StaticModel.from_pretrained("minishlab/potion-base-8M")
+    # Compute text embeddings
+
     def embeddingfunc(text):
-        return transformer.encode(sentences=text,show_progress_bar=False,normalize_embeddings=True)
+        return model2vec_model.encode(text)
+
+
+    #question = "How many people live in New York"
+    #start_ids, dt = vector_similarity_search(question, top_k=3)
+    #res = [mongodb_client.query_df('pages', {"id": par_id}, {}, 1) for par_id in start_ids]
+
+    # print(wiki_qa("How many people live in New York City?", top_k=3, max_answer_length=100,n_walks=1, max_steps=3))
+    #
+    # print(wiki_qa("If my future wife has the same first name as the 15th first lady of the United States'"
+    #               " mother and her surname is the same as the second assassinated president's mother's maiden name,"
+    #               " what is my future wife's name?", top_k=3, max_answer_length=100, n_walks=1, max_steps=3)) #Jane Ballou
+
+    # print(wiki_qa("As of 2010, if you added the number of times Brazil had won the World Cup to the amount of times the Chicago Bulls "
+    #               "had won the NBA Championship and multiplied this number by the amount of times the Dallas Cowboys had won the Super Bowl,"
+    #               " what number are you left with?", top_k=3, max_answer_length=100, n_walks=1, max_steps=3)) #55
+
+    # print(wiki_qa("I am thinking of a Ancient Roman City. The city was destroyed by volcanic eruption."
+    #               " The eruption occurred in the year 79 AD. The volcano was a stratovolcano. "
+    #               "Where was the session held where it was decided that the city would be named a UNESCO world heritage site?",
+    #               top_k=3, max_answer_length=100, n_walks=1, max_steps=3)) #Naples
 
 
 
@@ -175,13 +250,13 @@ if __name__ == "__main__":
 
 
 
-    #res = mongodb_client.query_df('pages', {"id" : 'anarchism_0'}, {}, 1)
-    print(embeddingfunc("test"))
-
-    from time import sleep
-    sleep(10)
-
-    print(embeddingfunc("nnnnn"))
-    a=2
-    b=3
-    sleep(10)
+    # #res = mongodb_client.query_df('pages', {"id" : 'anarchism_0'}, {}, 1)
+    # print(embeddingfunc("test"))
+    #
+    # from time import sleep
+    # sleep(10)
+    #
+    # print(embeddingfunc("nnnnn"))
+    # a=2
+    # b=3
+    # sleep(10)

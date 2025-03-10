@@ -5,7 +5,7 @@ class Link():
     def __init__(self, origin, target, **kwargs):
         self.origin = origin
         self.target = target
-        self.link_id = str(target['id'])
+        self.link_id = str(target['id'][0])
 
     def __eq__(self, other): #for easy comparison
         return (self.link_id == other.link_id)
@@ -28,11 +28,8 @@ class RandomWalk():
     def last_link(self):
         return self.links_traversed[-1]
 
-    def embed(self, text):
-        return embedfunc(text)
-
     def node_context(self, node):
-        return node['title'] + '\n' + node['content']
+        return node['title'][0] + ' \n ' + node['content'][0]
 
     def update(self,link):
         self.links_traversed.append(link)
@@ -40,11 +37,14 @@ class RandomWalk():
         self.embeddings.append(self.embed(self.last_context()))
 
 
-    def __init__(self, query, startpoint, max_steps,random_seed=42, **kwargs):
+    def __init__(self, query, startpoint, embeddingfunc, query_db_func, max_steps,random_seed=42,temp=0, **kwargs):
         np.random.seed(random_seed)
+        self.embed = embeddingfunc
+        self.query_db = query_db_func
         self.max_steps = max_steps
-        self.query_txt = query['text']
-        self.query_vect = query['embedding']
+        self.temp = temp
+        self.query_txt = query
+        self.query_vect = self.embed(query)
         #Init path
         self.links_traversed = []
         self.contexts = []
@@ -58,7 +58,15 @@ class RandomWalk():
 
     def get_links(self, node):
         #Get list of links originating from a node
-        return link_find_func(node["id"])
+        link_list = []
+        if "references" in node:
+            for link_target in node["references"][0]:
+                target_node = self.query_db('pages', {"id": link_target["id"]}, {}, 1)
+                if target_node.empty:
+                    print("Broken link to:",link_target)
+                else:
+                    link_list.append(Link(node,target_node))
+        return link_list
 
     def score_link(self, link):
         #Simplest scoring
@@ -78,9 +86,8 @@ class RandomWalk():
 
     def calculate_probabilities(self, link_scores):
         #Boltzmann weights
-        temp = 0.1
-        if (temp>0): #Bolztmann
-            w = np.exp(np.array(link_scores)/temp)
+        if (self.temp>0): #Bolztmann
+            w = np.exp(np.array(link_scores)/self.temp)
         else: #full greedy
             w = np.zeros(len(link_scores))
             w[np.argmax(link_scores)] = 1.0
@@ -97,7 +104,7 @@ class RandomWalk():
                 break
             link_scores = [self.score_link(link) for link in link_list]
             probs = self.calculate_probabilities(link_scores)
-            chosen_link_ind = np.random.choice(np.arange(len(probs)), probs)
+            chosen_link_ind = np.random.choice(np.arange(len(probs)), p=probs)
             #Update
             self.scores.append(link_scores[chosen_link_ind])
             self.update(link_list[chosen_link_ind])

@@ -391,7 +391,7 @@ def iterate_pages_from_export_file(
             par_id =  par_title_norm+"_"+str(ind)
             # Insert page
             if mongodb_client is not None:
-                print(par["embedding"])
+                #print(par["embedding"])
                 batch_update.append( mongo_add_paragraph(par_id, par["title"], par["text"], par["embedding"].tolist()) )
             if node_writer is not None:
                 node_writer.writerow([par_id, par["title"], par["text"].replace("\n"," ")])
