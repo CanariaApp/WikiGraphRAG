@@ -56,17 +56,31 @@ class RandomWalk():
         self.walk()
 
 
+    # def get_links(self, node):
+    #     #Get list of links originating from a node
+    #     link_list = []
+    #     if "references" in node:
+    #         for link_target in node["references"][0]:
+    #             target_node = self.query_db('pages', {"id": link_target["id"]}, {}, 1)
+    #             if target_node.empty:
+    #                 print("Broken link to:",link_target)
+    #             else:
+    #                 link_list.append(Link(node,target_node))
+    #     return link_list
+
     def get_links(self, node):
-        #Get list of links originating from a node
+        # Get list of links originating from a node
         link_list = []
         if "references" in node:
-            for link_target in node["references"][0]:
-                target_node = self.query_db('pages', {"id": link_target["id"]}, {}, 1)
-                if target_node.empty:
-                    print("Broken link to:",link_target)
-                else:
-                    link_list.append(Link(node,target_node))
-        return link_list
+            for link_target in node["references"]:
+                link_list.append(link_target.get("id"))
+        return_list = []
+        if len(link_list) > 0:
+            df = self.query_db('pages', {"id": {"$in": link_list}}, {}, 0)
+            for _, row in df.iterrows():
+                return_list.append(Link(node, row))
+        return return_list
+
 
     def score_link(self, link):
         #Simplest scoring

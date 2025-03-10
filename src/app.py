@@ -138,7 +138,7 @@ def wiki_qa(question, top_k=3, max_answer_length=100, n_walks=3, max_steps=3, ma
         basic_context = "\n\n".join(
             [
                 f"Document {i + 1}:\n"+
-                f"Content: {doc['content'][0][:max_context_doc_size]}...\n"
+                f"Content: {doc['content'][:max_context_doc_size]}...\n"
                 for i, doc in enumerate(basic_docs)
             ]
         )
@@ -146,7 +146,7 @@ def wiki_qa(question, top_k=3, max_answer_length=100, n_walks=3, max_steps=3, ma
         full_context = "\n\n".join(
             [
                 f"Document {i + 1}:\n"+
-                f"Content: {doc['content'][0][:max_context_doc_size]}...\n"
+                f"Content: {doc['content'][:max_context_doc_size]}...\n"
                 for i, doc in enumerate(all_docs)
             ]
         )

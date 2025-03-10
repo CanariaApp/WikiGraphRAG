@@ -62,7 +62,13 @@ def retriever(query, embeddingfunc,embeddingfunc_direct_search, query_db_func, i
     #Get starting documents with direct search
     start_ids, vector_search_time = direct_search(query, embeddingfunc_direct_search, index_path, k_best)
     # Get corresponding entries from DB
-    basic_docs = [query_db_func('pages', {"id": par_id}, {}, 1) for par_id in start_ids]
+    #basic_docs = [query_db_func('pages', {"id": par_id}, {}, 1) for par_id in start_ids]
+
+    basic_docs = []
+    df = query_db_func('pages', {"id": {"$in": start_ids}}, {}, 0)
+    for _, row in df.iterrows():
+        basic_docs.append(row)
+
 
     #Find most relevant path through document links for each starting node
     start_time = time.time()
