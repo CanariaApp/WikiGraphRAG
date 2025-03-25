@@ -22,11 +22,11 @@ def direct_search(query,embeddingfunc_direct_search,index_path, k_best=3):
 def get_paths_from_node(query,start_node, embeddingfunc, QueryDB, n_walks=3, max_steps=5, num_threads=1):
     #Initiate random walks from given startpoint using parallel processing
     random_seeds = np.random.randint(1, 65536, size=n_walks)
-    #with mp.Pool(num_threads) as pool:
-        # results = pool.starmap(
-        #     RandomWalk,
-        #     [(query, startpoint, embeddingfunc, QueryDB, max_steps, random_seed) for random_seed in random_seeds]
-        # )
+    # with mp.Pool(num_threads) as pool:
+    #     results = pool.starmap(
+    #         RandomWalk,
+    #         [(query, start_node, embeddingfunc, QueryDB, max_steps, random_seed) for random_seed in random_seeds]
+    #     )
     results = [RandomWalk(query, start_node, embeddingfunc, QueryDB, max_steps, random_seed) for random_seed in random_seeds]
     return results
 
