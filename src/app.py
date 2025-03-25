@@ -80,7 +80,7 @@ def generate_answer(
 
             Answer:"""
         else:
-            context = " \n ".join([doc["content"][0][:max_context_length] for doc in documents])
+            context = " \n ".join([doc["content"][:max_context_length] for doc in documents])
             template = """Given the following detailed context from Wikipedia pages, 
             please provide an answer to the question. Keep the answer as short as possible. Respond "Unsure" if not sure about the answer. 
     
@@ -120,7 +120,7 @@ def wiki_qa(question, top_k=3, max_answer_length=100, n_walks=3, max_steps=3, ma
         #try:
         # Perform hybrid search
         basic_docs, all_docs, vector_time, walk_time = retriever(question, embeddingfunc,embeddingfunc_direct_search,
-                                                                 mongodb_client.query_df, INDEX_PATH, n_walks=n_walks,
+                                                                 QueryDB, INDEX_PATH, n_walks=n_walks,
                                                                  max_steps=max_steps, k_best=top_k)
 
         # Generate answer using LLM without context
@@ -222,12 +222,40 @@ if __name__ == "__main__":
         return model2vec_model.encode(text)
 
 
-    #question = "How many people live in New York"
-    #start_ids, dt = vector_similarity_search(question, top_k=3)
-    #res = [mongodb_client.query_df('pages', {"id": par_id}, {}, 1) for par_id in start_ids]
+    from neo4j import GraphDatabase
 
-    # print(wiki_qa("How many people live in New York City?", top_k=3, max_answer_length=100,n_walks=1, max_steps=3))
-    #
+    NEO4J_URI = "bolt://104.174.233.236:7688"
+    NEO4J_USER = "neo4j"
+    NEO4J_PASSWORD = "decanar1AdminB"
+    # Set up Neo4j driver
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+
+    class MongoQuery:
+        def __init__(self, client):
+            self.client = client
+        def get_index(self, id_list):
+            return [row for _, row in (self.client.query_df('pages', {"id": {"$in": id_list}}, {}, 0)).iterrows()]
+
+    class Neo4jQuery:
+        def __init__(self, driver):
+            self.driver = driver
+        def convert_to_dict_list(self, record_list):
+            return [{'id': record.data()['p']['Page'], 'title': record.data()['p']['title'],
+              'content': record.data()['p']['content']} for record in record_list]
+        def get_index(self, id_list):
+            records = [self.driver.execute_query("MATCH (p:PageId {Page:'"+target_id+"'}) RETURN p")[0][0] for target_id in id_list]
+            return self.convert_to_dict_list(records)
+        def get_neighbours(self, target_id):
+            records, _, _ = self.driver.execute_query("MATCH (b:PageId {Page:'"+target_id+"'})-[]->(p) RETURN p")
+            return self.convert_to_dict_list(records)
+
+
+    #QueryDB = MongoQuery(mongodb_client)
+    QueryDB = Neo4jQuery(driver)
+
+
+    #print(wiki_qa("How many people live in New York City?", top_k=3, max_answer_length=100,n_walks=1, max_steps=3))
+
     # print(wiki_qa("If my future wife has the same first name as the 15th first lady of the United States'"
     #               " mother and her surname is the same as the second assassinated president's mother's maiden name,"
     #               " what is my future wife's name?", top_k=3, max_answer_length=100, n_walks=1, max_steps=3)) #Jane Ballou
@@ -242,6 +270,8 @@ if __name__ == "__main__":
     #               top_k=3, max_answer_length=100, n_walks=1, max_steps=3)) #Naples
 
 
+
+    #ggggg
 
 
     #Start gradio interface

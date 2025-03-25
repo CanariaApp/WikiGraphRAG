@@ -19,15 +19,15 @@ def direct_search(query,embeddingfunc_direct_search,index_path, k_best=3):
     return list_of_k_best_nodes, (time.time() - start_time)
 
 
-def get_paths_from_node(query,start_node, embeddingfunc, query_db_func, n_walks=3, max_steps=5, num_threads=1):
+def get_paths_from_node(query,start_node, embeddingfunc, QueryDB, n_walks=3, max_steps=5, num_threads=1):
     #Initiate random walks from given startpoint using parallel processing
     random_seeds = np.random.randint(1, 65536, size=n_walks)
     #with mp.Pool(num_threads) as pool:
         # results = pool.starmap(
         #     RandomWalk,
-        #     [(query, startpoint, embeddingfunc, query_db_func, max_steps, random_seed) for random_seed in random_seeds]
+        #     [(query, startpoint, embeddingfunc, QueryDB, max_steps, random_seed) for random_seed in random_seeds]
         # )
-    results = [RandomWalk(query, start_node, embeddingfunc, query_db_func, max_steps, random_seed) for random_seed in random_seeds]
+    results = [RandomWalk(query, start_node, embeddingfunc, QueryDB, max_steps, random_seed) for random_seed in random_seeds]
     return results
 
 def deduplicate_doc_list(doc_list):
@@ -58,23 +58,23 @@ def reranker(paths):
     return dedup_docs
 
 
-def retriever(query, embeddingfunc,embeddingfunc_direct_search, query_db_func, index_path, n_walks=1, max_steps=3, k_best=3):
+def retriever(query, embeddingfunc,embeddingfunc_direct_search, QueryDB, index_path, n_walks=1, max_steps=3, k_best=3):
     #Get starting documents with direct search
     start_ids, vector_search_time = direct_search(query, embeddingfunc_direct_search, index_path, k_best)
     # Get corresponding entries from DB
-    #basic_docs = [query_db_func('pages', {"id": par_id}, {}, 1) for par_id in start_ids]
 
-    basic_docs = []
-    df = query_db_func('pages', {"id": {"$in": start_ids}}, {}, 0)
-    for _, row in df.iterrows():
-        basic_docs.append(row)
+    basic_docs = QueryDB.get_index(start_ids)
+    # basic_docs = []
+    # df = QueryDB.get_index(start_ids)
+    # for _, row in df.iterrows():
+    #     basic_docs.append(row)
 
 
     #Find most relevant path through document links for each starting node
     start_time = time.time()
     paths = []
     for start_node in basic_docs:
-        paths += get_paths_from_node(query,start_node,embeddingfunc, query_db_func, n_walks=n_walks, max_steps=max_steps)
+        paths += get_paths_from_node(query,start_node,embeddingfunc, QueryDB, n_walks=n_walks, max_steps=max_steps)
     random_walk_time = (time.time() - start_time)
 
     #Rerank documents

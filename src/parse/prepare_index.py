@@ -61,7 +61,7 @@ if __name__ == "__main__":
         "--index_filename",
         type=str,
         default="src/data/admin/bge3_index.pkl",
-        help="name of the pickle file where the wiki page redirects are saved",
+        help="name of the pickle file where the index will be saved",
     )
     parser.add_argument(
         "--index_ncentroids",

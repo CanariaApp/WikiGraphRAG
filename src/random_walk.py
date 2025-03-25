@@ -29,7 +29,7 @@ class RandomWalk():
         return self.links_traversed[-1]
 
     def node_context(self, node):
-        return node['title'][0] + ' \n ' + node['content'][0]
+        return node['title'] + ' \n ' + node['content']
 
     def update(self,link):
         self.links_traversed.append(link)
@@ -37,10 +37,14 @@ class RandomWalk():
         self.embeddings.append(self.embed(self.last_context()))
 
 
-    def __init__(self, query, startpoint, embeddingfunc, query_db_func, max_steps,random_seed=42,temp=0, **kwargs):
+    def __init__(self, query, startpoint, embeddingfunc, QueryDB, max_steps,random_seed=42,temp=0, **kwargs):
         np.random.seed(random_seed)
         self.embed = embeddingfunc
-        self.query_db = query_db_func
+        self.query_index = QueryDB.get_index
+        if hasattr(QueryDB, 'get_neighbours') and callable(QueryDB.get_neighbours):
+            self.query_neighbours = QueryDB.get_neighbours
+        else:
+            self.query_neighbours = None
         self.max_steps = max_steps
         self.temp = temp
         self.query_txt = query
@@ -55,30 +59,21 @@ class RandomWalk():
         #Start random walk
         self.walk()
 
-
-    # def get_links(self, node):
-    #     #Get list of links originating from a node
-    #     link_list = []
-    #     if "references" in node:
-    #         for link_target in node["references"][0]:
-    #             target_node = self.query_db('pages', {"id": link_target["id"]}, {}, 1)
-    #             if target_node.empty:
-    #                 print("Broken link to:",link_target)
-    #             else:
-    #                 link_list.append(Link(node,target_node))
-    #     return link_list
-
     def get_links(self, node):
         # Get list of links originating from a node
-        link_list = []
-        if "references" in node:
-            for link_target in node["references"]:
-                link_list.append(link_target.get("id"))
-        return_list = []
-        if len(link_list) > 0:
-            df = self.query_db('pages', {"id": {"$in": link_list}}, {}, 0)
-            for _, row in df.iterrows():
-                return_list.append(Link(node, row))
+        if (self.query_neighbours is not None):
+             return_list = [Link(node, target_node) for target_node in self.query_neighbours(node["id"])]
+        else: #no direct method of getting neighbours
+            link_list = []
+            return_list = []
+            if "references" in node:
+                for link_target in node["references"]:
+                    link_list.append(link_target.get("id"))
+            if len(link_list) > 0:
+                return_list = [Link(node, target_node) for target_node in self.query_index(link_list)]
+                # df = self.query_index(link_list)
+                # for _, row in df.iterrows():
+                #     return_list.append(Link(node, row))
         return return_list
 
 
@@ -87,7 +82,7 @@ class RandomWalk():
         ##score = np.dot(self.query_vect, link.target['embedding'])
 
         #Less simple scoring
-        weight = 0.5
+        ##weight = 0.5
         ##score = weight*np.dot(self.query_vect, link.target['embedding']) + (1-weight)*np.dot(self.last_embedding(), target['embedding'])
 
         #expensive scoring
