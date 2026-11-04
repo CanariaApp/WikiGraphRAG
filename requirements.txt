@@ -11,7 +11,7 @@ datasets==3.0.1
 decorator==5.1.1
 dill==0.3.8
 executing==2.1.0
-filelock==3.16.1
+filelock==4.2.1
 frozenlist==1.4.1
 fsspec==2024.6.1
 huggingface-hub==0.25.1
